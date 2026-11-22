@@ -487,11 +487,13 @@
       <div class="card-head"><h2 id="cFormTitle">New campaign</h2><button type="button" class="plain small" id="cCancel" hidden>Cancel edit</button></div>
       <p class="muted">Every industry is searched in every town. Businesses already in your leads are skipped, so running a campaign again only adds new ones.</p>
       <div class="fields">
+        <label>Service to sell <select id="cService"><option value="web_design">Web design</option></select></label>
+        <span class="muted" id="cFinds"></span>
         <label>Name <input id="cName" maxlength="120" placeholder="Trades in Sheffield"></label>
         <label>Industries, separated by commas <span class="suggest"><input id="cIndustries" placeholder="Plumbers, Electricians, Roofers" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"></span></label>
         <label>Towns, separated by commas <span class="suggest"><input id="cTowns" placeholder="Sheffield, Rotherham" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"></span></label>
         <div class="cols two">
-          <label>Looking for <select id="cType">
+          <label id="cTypeBox">Looking for <select id="cType">
             <option value="no_website">No website</option>
             <option value="outdated_website">Outdated website</option>
             <option value="both">Either</option>
@@ -499,8 +501,8 @@
           <label>Most leads per run <input id="cMax" type="number" min="1" max="100" value="100"></label>
         </div>
         <label>Free guide to offer in its emails <select id="cGuide"><option value="">None</option></select></label>
-        <label class="chip" style="justify-self:start"><input type="checkbox" id="cConcept">Show a homepage concept in the first email</label>
-        <span class="muted">Claude makes each lead a homepage concept from their own logo, colours and photos, shown as a picture inside the email. A few pence and about a minute per lead.</span>
+        <label class="chip" style="justify-self:start" id="cConceptBox"><input type="checkbox" id="cConcept">Show a homepage concept in the first email</label>
+        <span class="muted" id="cConceptNote">Claude makes each lead a homepage concept from their own logo, colours and photos, shown as a picture inside the email. A few pence and about a minute per lead.</span>
         <div class="fields" style="gap:6px"><span class="muted">Search</span>
           <div class="chips" id="cSources">
             <label class="chip"><input type="checkbox" value="places" checked>Google Maps</label>
@@ -875,13 +877,25 @@
     .sort((a, b) => b.toLowerCase().startsWith(q.toLowerCase()) - a.toLowerCase().startsWith(q.toLowerCase())).map(name => ({ name })));
   suggest($('cTowns'), async q => (await api(`/campaigns/towns?q=${encodeURIComponent(q)}`)).json());
   const campBody = () => ({ name: $('cName').value, industries: $('cIndustries').value, towns: $('cTowns').value, lead_type: $('cType').value,
-    max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value), guide_id: Number($('cGuide').value) || null, concept: $('cConcept').checked });
+    max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value), guide_id: Number($('cGuide').value) || null, concept: $('cConcept').checked, service: $('cService').value });
+  // The service steers the form: who counts as a lead, and whether a homepage concept makes sense.
+  let services = [];
+  const serviceOf = key => services.find(s => s.key === key) ?? { label: 'Web design', finds: '', concept: true };
+  function serviceForm() {
+    const s = serviceOf($('cService').value);
+    $('cFinds').textContent = s.finds ? `Finds: ${s.finds} Claude rates them and writes the emails around ${s.label}.` : '';
+    $('cTypeBox').hidden = $('cService').value !== 'web_design';
+    $('cConceptBox').hidden = $('cConceptNote').hidden = !s.concept;
+    if (!s.concept) $('cConcept').checked = false;
+  }
+  $('cService').addEventListener('change', serviceForm);
   function editCampaign(c) {
     editing = c?.id ?? null;
     $('cFormTitle').textContent = c ? `Edit ${c.name}` : 'New campaign';
     $('cCancel').hidden = !c;
     $('cName').value = c?.name ?? ''; $('cIndustries').value = c?.industries ?? ''; $('cTowns').value = c?.towns ?? '';
     $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 100; $('cGuide').value = c?.guide_id ?? ''; $('cConcept').checked = !!c?.concept;
+    $('cService').value = c?.service ?? 'web_design'; serviceForm();
     for (const i of $('cSources').querySelectorAll('input')) i.checked = c ? c.sources.includes(i.value) : i.value === 'places';
     note('cOut', '');
   }
@@ -916,6 +930,8 @@
       api('/campaigns/usage').then(r => r.json()).then(u => {
         $('cUsage').textContent = `This month: ${u.google_searches} of ${u.google_free.toLocaleString('en-GB')} free Google searches${u.google_cost_gbp ? `, ${money(u.google_cost_gbp)} beyond that` : ''}, ${plural(u.firecrawl_credits, 'Firecrawl credit')}, ${u.apollo_credits} of ${u.apollo_cap} Apollo credits`;
       }).catch(() => {});
+      if (!services.length) { services = await (await api('/services')).json(); const was = $('cService').value;
+        $('cService').innerHTML = services.map(s => `<option value="${s.key}">${esc(s.label)}</option>`).join(''); $('cService').value = was; serviceForm(); }
       campList = await (await api('/campaigns')).json();
       const live = (await (await api('/guides')).json()).filter(g => g.status === 'published'), pickedGuide = $('cGuide').value;
       $('cGuide').innerHTML = '<option value="">None</option>' + live.map(g => `<option value="${g.id}">${esc(g.title)}</option>`).join('');
@@ -924,7 +940,7 @@
       $('cList').innerHTML = campList.map(c => `<div class="camp">
           <div class="row" style="justify-content:space-between"><h3>${esc(c.name)}</h3>
             <span class="badge ${{ running: 'pending', done: 'sent', failed: 'bad' }[c.status] ?? ''}">${esc({ draft: 'Not run', running: 'Running', done: 'Done', failed: 'Failed' }[c.status])}</span></div>
-          <span class="muted">${esc(TYPES[c.lead_type])} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run${guideName(c.guide_id) ? ` · offers ${esc(guideName(c.guide_id))}` : ''}${c.concept ? ' · shows a concept' : ''}</span>
+          <span class="muted">${esc(serviceOf(c.service).label)}${c.service === 'web_design' ? `, ${esc(TYPES[c.lead_type].toLowerCase())}` : ''} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run${guideName(c.guide_id) ? ` · offers ${esc(guideName(c.guide_id))}` : ''}${c.concept ? ' · shows a concept' : ''}</span>
           <span style="font-size:13px">${campSummary(c)}</span>
           <span style="font-size:13px">${analysisLine(c)}</span>
           <div class="row">

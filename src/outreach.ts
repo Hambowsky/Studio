@@ -13,6 +13,7 @@ import { runPrompt } from './copy.ts';
 import { offer } from './magnets.ts';
 import * as concept from './concept.ts';
 import * as apollo from './apollo.ts';
+import { promptVars } from './services.ts';
 
 type Email = { id: number; lead_id: number | null; to_email: string; subject: string; body: string; status: string; error: string | null;
   message_id: string | null; created_at: string; approved_at: string | null; sent_at: string | null; follow_up_of: number | null; concept: number };
@@ -42,7 +43,7 @@ export async function draft(leadId: number) {
     website_issues: describe(l.website_issues), seo_issues: describe(l.seo_issues), pagespeed: a.pagespeed ? String(a.pagespeed.score) : 'not checked',
     gbp: g ? `${g.rating ?? 'no'} stars from ${g.reviews ?? 0} reviews` : 'not found', notes: a.notes ?? l.lead_reason, pitch: a.pitch ?? 'none',
     case_studies: (caseStudies() as CaseStudy[]).map(c => `${c.client} (${c.industry}): ${c.blurb}`).join('\n') || 'none',
-    guide: offer(l.campaign_id), concept: shown ? 'yes' : 'no', apollo: apollo.describe(l.apollo),
+    guide: offer(l.campaign_id), concept: shown ? 'yes' : 'no', apollo: apollo.describe(l.apollo), ...promptVars(l.campaign_id),
   }, { job: 'lead:email' });
   db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, concept) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`).run(leadId, norm(l.email), r.output.subject, r.output.body, shown ? 1 : 0);
   return get((db.prepare(`SELECT id FROM emails WHERE lead_id = ? AND status IN ('pending_approval', 'approved', 'sending')`).get(leadId) as { id: number }).id);
@@ -84,12 +85,12 @@ export async function draftFollowUps() {
   if (drafting) fail(409, 'Drafts are already being written. Wait for them to finish.');
   drafting = true;
   try {
-    const due = db.prepare(`SELECT e.*, l.company_name, l.contact_name ${DUE} ORDER BY e.id`).all(since()) as (Email & { company_name: string; contact_name: string })[];
+    const due = db.prepare(`SELECT e.*, l.company_name, l.contact_name, l.campaign_id ${DUE} ORDER BY e.id`).all(since()) as (Email & { company_name: string; contact_name: string; campaign_id: number | null })[];
     let drafted = 0;
     for (const e of due) {
       try {
         const r = await runPrompt('outreach-follow-up', { company: e.company_name, contact: e.contact_name || 'not known',
-          days: String(Math.round((Date.now() - Date.parse(`${e.sent_at}Z`)) / 86_400_000)), subject: e.subject, first_email: e.body }, { job: 'lead:follow-up' });
+          days: String(Math.round((Date.now() - Date.parse(`${e.sent_at}Z`)) / 86_400_000)), subject: e.subject, first_email: e.body, ...promptVars(e.campaign_id) }, { job: 'lead:follow-up' });
         drafted += Number(db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, follow_up_of) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`)
           .run(e.lead_id, e.to_email, /^re:/i.test(e.subject) ? e.subject : `Re: ${e.subject}`, r.output.body, e.id).changes);
       } catch (err: any) { return { drafted, error: err.message }; }

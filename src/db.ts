@@ -362,6 +362,8 @@ const migrations = [
      cost REAL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    )`,
+
+  `ALTER TABLE campaigns ADD COLUMN service TEXT NOT NULL DEFAULT 'web_design'`, // what the campaign sells: a key of SERVICES in services.ts
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

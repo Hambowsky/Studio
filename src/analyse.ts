@@ -10,6 +10,7 @@ import { checkSite, findEmail, findSocial, scrape, scrapeShot } from './sitechec
 import { BROWSER, isChallenge } from './page.ts';
 import { runPrompt } from './copy.ts';
 import * as apollo from './apollo.ts';
+import { promptVars } from './services.ts';
 
 type Analysis = {
   pagespeed?: { score: number; lcp: string; scores?: Record<string, number> };
@@ -145,7 +146,7 @@ export async function analyseLead(id: number) {
       pagespeed: a.pagespeed ? `${a.pagespeed.score}, largest content shows in ${a.pagespeed.lcp}` : 'not checked',
       domain_age: a.domain ? `${a.domain.registered} (${a.domain.years} years ago)` : 'not known',
       gbp: g ? `${g.rating ?? 'no'} stars from ${g.reviews ?? 0} reviews${g.has_hours === undefined ? '' : `, ${g.has_hours ? 'has' : 'no'} opening hours, ${g.photos} photos`}` : 'not found',
-      social: Object.keys(l.social_links).join(', ') || 'none found', apollo: apollo.describe(l.apollo),
+      social: Object.keys(l.social_links).join(', ') || 'none found', apollo: apollo.describe(l.apollo), ...promptVars(l.campaign_id),
     }, { job: 'lead:review' });
     priority = r.output.priority;
     a.notes = r.output.notes;

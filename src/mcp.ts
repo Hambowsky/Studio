@@ -2,6 +2,7 @@
 // called from inside the app, so the same checks, caps and daily email limit apply. David chose (2026-10-23) to let
 // Hermes approve, send and publish too; those tools say to use them only when he asks in that conversation.
 // ponytail: plain JSON responses, no SSE stream or sessions; add them if a client ever needs server pushes.
+import { SERVICE_KEYS } from './services.ts';
 import type { FastifyInstance } from 'fastify';
 import { PUBLIC_URL } from './config.ts';
 
@@ -67,13 +68,14 @@ export const TOOLS: Tool[] = [
     props: { name: str('A short name, such as "Plumbers, Newcastle and Durham"'), industries: str('Comma separated trades, such as "plumbers, heating engineers"'), towns: str('Comma separated towns, such as "Newcastle upon Tyne, Durham"'),
       lead_type: { enum: ['no_website', 'outdated_website', 'both'], description: 'Businesses with no website, an outdated one, or either. Use both unless David says otherwise.' },
       max_leads: { type: 'integer', minimum: 1, maximum: 100, description: 'Most leads to find in one run. Use 50 unless David says otherwise.' },
-      sources: { type: 'array', items: { enum: ['places', 'directories', 'apollo'] }, description: 'Google Places, web directories and/or Apollo (costs Apollo credits). Use places and directories unless David says otherwise.' } },
-    required: ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], call: a => ({ method: 'POST', url: '/campaigns', body: pick(a, ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources']) }) },
+      sources: { type: 'array', items: { enum: ['places', 'directories', 'apollo'] }, description: 'Google Places, web directories and/or Apollo (costs Apollo credits). Use places and directories unless David says otherwise.' },
+      service: { enum: SERVICE_KEYS, description: 'What the campaign sells: web_design, seo (SEO and AI search), ai (AI services and automation), care_plan or cro. It decides which businesses count as leads and what the emails offer. Use web_design unless David says otherwise.' } },
+    required: ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], call: a => ({ method: 'POST', url: '/campaigns', body: pick(a, ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources', 'service']) }) },
   { name: 'get_campaign', read: true, description: 'One campaign with its settings, run progress and lead counts.', props: { id }, required: ['id'], call: a => ({ method: 'GET', url: `/campaigns/${Number(a.id)}` }) },
   { name: 'update_campaign', description: 'Changes a campaign. Send every field, as in create_campaign.',
     props: { id, name: str('Name'), industries: str('Comma separated trades'), towns: str('Comma separated towns'), lead_type: { enum: ['no_website', 'outdated_website', 'both'] },
-      max_leads: { type: 'integer', minimum: 1, maximum: 100 }, sources: { type: 'array', items: { enum: ['places', 'directories', 'apollo'] } } },
-    required: ['id', 'name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], call: a => ({ method: 'PUT', url: `/campaigns/${Number(a.id)}`, body: pick(a, ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources']) }) },
+      max_leads: { type: 'integer', minimum: 1, maximum: 100 }, sources: { type: 'array', items: { enum: ['places', 'directories', 'apollo'] } }, service: { enum: SERVICE_KEYS } },
+    required: ['id', 'name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], call: a => ({ method: 'PUT', url: `/campaigns/${Number(a.id)}`, body: pick(a, ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources', 'service']) }) },
   { name: 'delete_campaign', description: 'Deletes a campaign. Only when David asks.', props: { id }, required: ['id'], call: a => ({ method: 'DELETE', url: `/campaigns/${Number(a.id)}` }) },
   { name: 'analyse_campaign', description: 'Checks the websites of a campaign\'s leads (speed, mobile, SSL and so on) and rates them hot, warm or cold. Runs in the background.',
     props: { id, all: { type: 'boolean', description: 'true to check every lead again, not just new ones' } }, required: ['id'], call: a => ({ method: 'POST', url: `/campaigns/${Number(a.id)}/analyse${a.all ? '?all=true' : ''}` }) },

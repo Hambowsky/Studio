@@ -19,6 +19,7 @@ import { analyseCampaign, analyseLead } from './analyse.ts';
 import { reportPdf } from './report.ts';
 import * as concept from './concept.ts';
 import * as customers from './customers.ts';
+import { SERVICES, SERVICE_KEYS } from './services.ts';
 import * as dashboard from './dashboard.ts';
 import * as gsc from './gsc.ts';
 import * as outreach from './outreach.ts';
@@ -292,7 +293,8 @@ export function buildApp() {
   const campaignBody = { type: 'object', additionalProperties: false, required: ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], properties: {
     name: { type: 'string', minLength: 1, maxLength: 120 }, industries: { type: 'string', minLength: 1, maxLength: 1000 }, towns: { type: 'string', minLength: 1, maxLength: 1000 },
     lead_type: { enum: leads.LEAD_TYPES }, max_leads: { type: 'integer', minimum: 1, maximum: 100 },
-    sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } }, guide_id: { type: ['integer', 'null'], minimum: 1 }, concept: { type: 'boolean' } } };
+    sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } }, guide_id: { type: ['integer', 'null'], minimum: 1 }, concept: { type: 'boolean' }, service: { enum: SERVICE_KEYS } } };
+  app.get('/services', async () => SERVICE_KEYS.map(key => { const s = SERVICES[key]; return { key, label: s.label, finds: s.finds, concept: s.concept }; }));
   app.get('/campaigns', async () => leads.campaigns());
   app.get('/campaigns/usage', async () => leads.usage());
   app.get<{ Querystring: { q: string } }>('/campaigns/towns', { schema: { querystring: { type: 'object', required: ['q'], properties: { q: { type: 'string', maxLength: 60 } } } } },
