@@ -6,14 +6,35 @@
 import { db } from './db.ts';
 import { fail, SITE_URL } from './config.ts';
 import { categories, draft, findSources, research, siteGuides } from './articles.ts';
-import { writeCopy } from './copy.ts';
+import { runPrompt, writeCopy } from './copy.ts';
 import { planFocus } from './gsc.ts';
 import { render } from './render.ts';
+import { current as currentTemplate, list as listTemplates, sampleOf } from './templates.ts';
 import * as posts from './posts.ts';
 
 export type PlanInput = { category?: string; channels: posts.PostInput['channels']; count?: number; focus?: string; again?: boolean; week?: 'this' | 'next' };
 
-const TEMPLATES = ['social-post', 'tip-card', 'stat-card', 'quote-card', 'social-post'];
+// Still image templates for posts: every saved one except motion clips and the article header.
+export function postTemplates() {
+  return (listTemplates() as { name: string }[]).map(t => t.name)
+    .filter(n => n !== 'article-header' && !currentTemplate(n).body.includes('data-seconds'));
+}
+
+// Claude picks a template for each post to suit its point and mix them up. Anything it gets wrong, or a failed
+// call, falls back to taking the templates in turn, starting at a different one each week.
+export async function pickTemplates(topics: string[], week: number) {
+  const names = postTemplates();
+  if (!names.length) fail(400, 'There are no image templates to use');
+  const turn = topics.map((_, i) => names[(week + i) % names.length]);
+  try {
+    const sample = (n: string) => { const { headline, subtitle, tag } = sampleOf(currentTemplate(n).body); return `* ${n}: ${JSON.stringify({ headline, subtitle, tag })}`; };
+    const run = await runPrompt('plan-templates', { posts: topics.map((t, i) => `${i + 1}. ${t}`).join('\n'), templates: names.map(sample).join('\n') }, { job: 'plan:templates' });
+    const picks = (run.output as { picks: { n: number; template: string }[] }).picks;
+    return { templates: turn.map((t, i) => { const p = picks.find(x => x.n === i + 1)?.template; return p && names.includes(p) ? p : t; }), cost_gbp: run.cost_gbp };
+  } catch {
+    return { templates: turn, cost_gbp: 0 };
+  }
+}
 
 // Next Monday, as a date, so a plan made any day of the week covers the coming week.
 export function nextMonday(now = new Date()) {
@@ -109,24 +130,37 @@ export async function planWeek(input: PlanInput) {
     const article = await draft({ topic: idea.title, keyword: idea.keyword, audience: idea.audience, sources: sources.text, category });
     cost += article.cost_gbp;
 
-    const guides = otherGuides(await siteGuides(), category, Math.floor(Date.parse(monday) / (7 * 86_400_000)), count - 1);
+    const week = Math.floor(Date.parse(monday) / (7 * 86_400_000));
+    const guides = otherGuides(await siteGuides(), category, week, count - 1);
+    const spare = ideas.ideas.slice(1); // research gives six ideas; the article used the first
+    const otherFor = (i: number) => i > 0 && !guides[i - 1] && spare.length ? spare[(i - 1 - guides.length) % spare.length] : undefined;
+    const topics = Array.from({ length: count }, (_, i) => i === 0 ? `A point from our new article "${article.title}"`
+      : guides[i - 1] ? `Promotes our guide "${guides[i - 1].title}": ${guides[i - 1].summary ?? ''}` : `${otherFor(i)?.title ?? article.title}`);
+    const picked = await pickTemplates(topics, week);
+    cost += picked.cost_gbp;
     const made: { id: number; template: string; headline: string; due_at: string }[] = [];
     const problems: string[] = [];
     for (let i = 0; i < count; i++) {
-      const template = TEMPLATES[i % TEMPLATES.length];
+      let template = picked.templates[i];
       const done = made.map(m => `"${m.headline}"`).join(', ');
       const guide = i > 0 ? guides[i - 1] : undefined;
       const url = guide && `${SITE_URL}${guide.category}${guide.slug}`;
-      const spare = ideas.ideas.slice(1); // research gives six ideas; the article used the first
-      const other = i > 0 && !guide && spare.length ? spare[(i - 1 - guides.length) % spare.length] : undefined;
+      const other = otherFor(i);
       try {
-        const copy = await writeCopy({ template, ...(url ? { url } : other
+        const ask = { ...(url ? { url } : other
           ? { keyword: other.keyword, sources: other.notes,
               topic: `${other.title}. ${other.angle} Take one single, useful point from this${done ? `, different from the posts already made this week: ${done}` : ''}. Do not mention an article or a link.` }
           : { keyword: article.keyword, sources: article.body,
               topic: `Drawn from our new article "${article.title}". Take one single, useful point from it`
-                + `${done ? `, different from the posts already made: ${done}` : ''}. The article is not live yet, so do not mention a link to it.` }) });
+                + `${done ? `, different from the posts already made: ${done}` : ''}. The article is not live yet, so do not mention a link to it.` }) };
+        let copy = await writeCopy({ template, ...ask });
         cost += copy.cost_gbp;
+        // Text that will not fit the picked template (a stat card with no figure, say) goes on the plain post instead.
+        if (!copy.fits && template !== 'social-post' && postTemplates().includes('social-post')) {
+          template = 'social-post';
+          copy = await writeCopy({ template, ...ask });
+          cost += copy.cost_gbp;
+        }
         if (!copy.fits) { problems.push(`Post ${i + 1}: the text did not fit ${template}`); continue; }
         const r = await render(template, copy.fields);
         if (!r.ok) { problems.push(`Post ${i + 1}: the text did not fit ${template}`); continue; }

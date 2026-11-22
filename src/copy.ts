@@ -112,6 +112,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: { headline: str, highlight: str, intro: str, cta: str, trust: { type: 'array', items: str }, services: { type: 'array', items: { type: 'object',
       additionalProperties: false, required: ['title', 'text'], properties: { title: str, text: str } } }, about_title: str, about: str, closing: str, nav: { type: 'array', items: str } },
   },
+  'plan-templates': {
+    type: 'object', additionalProperties: false,
+    required: ['picks'],
+    properties: { picks: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'template'], properties: { n: { type: 'integer' }, template: str } } } },
+  },
   caption: {
     type: 'object', additionalProperties: false,
     required: ['caption', 'hashtags'],

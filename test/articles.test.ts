@@ -58,6 +58,8 @@ const claude = serve(r => {
     return { ...base, stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here you go.\n' + JSON.stringify({ ideas }) }],
       usage: { input_tokens: 5000, output_tokens: 800, server_tool_use: { web_search_requests: 2 } } };
   }
+  if (prompt.includes('Pick an image template')) return { id: 'msg', type: 'message', role: 'assistant', model: r.model, stop_reason: 'end_turn', stop_sequence: null, stop_details: null,
+    content: [{ type: 'text', text: JSON.stringify({ picks: [{ n: 1, template: 'tip-card' }, { n: 2, template: 'stat-card' }, { n: 3, template: 'no-such-template' }] }) }], usage: { input_tokens: 500, output_tokens: 50 } };
   if (prompt.includes('Red Cherry IT explainer')) { claudeCalls.push('learn'); draftPrompts.push(prompt); }
   allPrompts.push(prompt);
   claudeCalls.push(prompt.includes('Red Cherry IT article') ? 'article' : prompt.includes('Write the caption') ? 'caption' : 'post');
@@ -374,6 +376,10 @@ test('planning the week drafts an article and schedules posts across the week at
   assert.equal((await call('GET', `/articles/${p.article.id}`)).json().status, 'draft', 'the article waits for review');
   assert.ok(p.posts.length >= 1, JSON.stringify(p.problems)); // later posts promote live guides from other categories, with the link
   assert.equal(p.posts.length + p.problems.length, 3);
+  const { postTemplates } = await import('../src/plan.ts');
+  assert.ok(!postTemplates().some(t => t.startsWith('motion-') || t === 'article-header'), 'only still post templates');
+  assert.deepEqual(p.posts.slice(0, 2).map((x: any) => x.template), ['tip-card', 'social-post'], 'Claude picks a template for each post; text with no figure goes on the plain post');
+  if (p.posts[2]) assert.ok(postTemplates().includes(p.posts[2].template), 'a made up name falls back to one that exists');
   for (const post of p.posts) {
     const row = (await call('GET', '/posts?status=pending_approval')).json().find((x: any) => x.id === post.id);
     assert.ok(row, 'the post waits for approval');
