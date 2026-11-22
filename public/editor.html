@@ -1265,6 +1265,7 @@
           <div class="row"><a class="button small" href="#social">Plan the week</a><a class="button plain small" href="#articles">Write an article</a><a class="button plain small" href="#campaigns">Find leads</a><a class="button plain small" href="#newsletter">Plan an email</a></div></div>
         ${todo([...salesTodo(s), ...marketingTodo(m)])}
         <div class="kpis">
+          ${kpi({ label: 'Customers', big: s.customers.count, sub: `${money(s.customers.paid_this_month)} paid this month, ${money(s.customers.owed)} owed${s.customers.monthly ? `. ${s.customers.monthly} on monthly invoices` : ''}`, href: '#customers' })}
           ${kpi({ label: 'Leads', big: s.leads, sub: `${s.leads_this_month} found this month`, href: '#leads', viz: stack(funnel.map(([, n, c]) => [n, c])) })}
           ${kpi({ label: 'Reply rate', big: s.reply_rate === null ? 'n/a' : `${s.reply_rate}%`, sub: `${s.replied} of ${s.emailed} emailed${s.bounce_rate ? `, ${s.bounce_rate}% bounced` : ''}`, href: '#leads', side: donut(s.reply_rate) })}
           ${kpi({ label: 'Outreach emails today', big: `${s.sent_today}<small> of ${s.daily_cap}</small>`, sub: `${s.sent_this_month} this month`, href: '#emails', viz: `<div class="meter"><i style="width:${Math.min(100, s.sent_today / s.daily_cap * 100)}%"></i></div>` })}

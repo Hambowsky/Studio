@@ -195,7 +195,9 @@ test('an overdue invoice shows on the Overview and can be chased with the PDF ag
   const inv = (await call('POST', `/customers/${id}/invoices`, { items: [{ description: 'Late one', qty: 1, price: 5 }] })).json();
   await call('POST', `/invoices/${inv.id}/send`, { message: 'x' });
   db.prepare(`UPDATE invoices SET due_on = date('now', '-3 days') WHERE id = ?`).run(inv.id);
-  assert.ok((await call('GET', '/dashboard/sales')).json().needs.invoices_overdue >= 1);
+  const dash = (await call('GET', '/dashboard/sales')).json();
+  assert.ok(dash.needs.invoices_overdue >= 1);
+  assert.ok(dash.customers.count >= 1 && dash.customers.owed >= 5);
   const before = mail.length;
   const c = (await call('POST', `/invoices/${inv.id}/remind`, {})).json();
   assert.equal(mail.length, before + 1);
