@@ -81,6 +81,12 @@ export function sales() {
       call_backs_due: n(`SELECT COUNT(*) AS n FROM leads WHERE follow_up_date <= date('now') AND status NOT IN ('converted', 'not_interested', 'not_a_fit', 'archived')`),
       ...customers.needs(),
     },
+    customers: {
+      count: n(`SELECT COUNT(*) AS n FROM customers`),
+      monthly: n(`SELECT COUNT(*) AS n FROM customers WHERE recurring IS NOT NULL`),
+      owed: n(`SELECT COALESCE(SUM(total), 0) AS n FROM invoices WHERE status = 'sent'`),
+      paid_this_month: n(`SELECT COALESCE(SUM(total), 0) AS n FROM invoices WHERE status = 'paid' AND paid_at >= ${MONTH}`),
+    },
     leads: n(`SELECT COUNT(*) AS n FROM leads WHERE status != 'archived'`),
     leads_this_month: n(`SELECT COUNT(*) AS n FROM leads WHERE created_at >= ${MONTH}`),
     status,
