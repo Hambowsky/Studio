@@ -7,6 +7,7 @@ import { db } from './db.ts';
 import { APOLLO_API_KEY, APOLLO_MONTHLY_CREDITS, DATA_DIR, fail, GBP_PER_USD, FIRECRAWL_API_KEY, FIRECRAWL_API_URL, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL } from './config.ts';
 import { checkSite, type SiteCheck } from './sitecheck.ts';
 import * as apollo from './apollo.ts';
+import { service, type ServiceKey } from './services.ts';
 
 export const screenshotPath = (id: number) => path.join(DATA_DIR, 'leads', `${id}.jpg`);
 
@@ -24,7 +25,7 @@ const GOOGLE_FREE = 1000, GOOGLE_USD_EACH = 0.035;
 const MAX_COMBOS = 25;
 const DIRECTORIES = ['yell.com', 'freeindex.co.uk', 'scoot.co.uk', 'checkatrade.com', 'ratedpeople.com', 'mybuilder.com', 'facebook.com/pages', 'linkedin.com/company'];
 
-export type CampaignInput = { name: string; industries: string; towns: string; lead_type: typeof LEAD_TYPES[number]; max_leads: number; sources: string[]; guide_id?: number | null; concept?: boolean };
+export type CampaignInput = { name: string; industries: string; towns: string; lead_type: typeof LEAD_TYPES[number]; max_leads: number; sources: string[]; guide_id?: number | null; concept?: boolean; service?: ServiceKey };
 type Campaign = Omit<CampaignInput, 'sources'> & { id: number; sources: string; status: string; last_run_at: string | null; last_run_summary: string | null };
 type Found = { company_name: string; phone: string; email: string; website_url: string; address: string; postcode: string; town: string;
   industry: string; source: string; source_ref: string; rating: number | null; reviews: number | null };
@@ -64,17 +65,17 @@ export const campaign = (id: number) => view(getRow(id));
 
 export function createCampaign(c: CampaignInput) {
   validate(c);
-  const { lastInsertRowid } = db.prepare('INSERT INTO campaigns (name, industries, towns, lead_type, max_leads, sources, guide_id, concept) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, c.concept ? 1 : 0);
+  const { lastInsertRowid } = db.prepare('INSERT INTO campaigns (name, industries, towns, lead_type, max_leads, sources, guide_id, concept, service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, c.concept && service(c.service).concept ? 1 : 0, c.service ?? 'web_design');
   return campaign(Number(lastInsertRowid));
 }
 
 export function updateCampaign(id: number, c: CampaignInput) {
-  getRow(id);
+  const was = getRow(id);
   if (running.has(id)) fail(409, 'Wait for this campaign to finish running before changing it');
   validate(c);
-  db.prepare('UPDATE campaigns SET name = ?, industries = ?, towns = ?, lead_type = ?, max_leads = ?, sources = ?, guide_id = ?, concept = ? WHERE id = ?')
-    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, c.concept ? 1 : 0, id);
+  db.prepare('UPDATE campaigns SET name = ?, industries = ?, towns = ?, lead_type = ?, max_leads = ?, sources = ?, guide_id = ?, concept = ?, service = ? WHERE id = ?')
+    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, c.concept && service(c.service ?? was.service).concept ? 1 : 0, c.service ?? was.service ?? 'web_design', id);
   return campaign(id);
 }
 
@@ -202,13 +203,8 @@ export function dedupKey(name: string, place: string) {
   return crypto.createHash('sha256').update(`${norm}|${place.toLowerCase().replace(/\s/g, '')}`).digest('hex').slice(0, 40);
 }
 
-// Whether a business fits the campaign, and the reason shown on the lead.
-export function judge(f: Found, site: SiteCheck | null, type: Campaign['lead_type']) {
-  if (!f.website_url) return type !== 'outdated_website' ? 'No website found for this business' : null;
-  if (!site?.reachable) return type !== 'outdated_website' ? 'Website listed but unreachable' : null;
-  const issues = Object.keys(site.issues);
-  return issues.length && type !== 'no_website' ? `Outdated website: ${issues.join(', ')}` : null;
-}
+// Whether a business fits the campaign, and the reason shown on the lead. Each service has its own rule.
+export const judge = (f: Found, site: SiteCheck | null, type: Campaign['lead_type'], key: string = 'web_design') => service(key).judge(f, site, type);
 
 async function work(c: Campaign, p: Progress) {
   const industries = list_(c.industries), towns = list_(c.towns), sources = c.sources.split(',');
@@ -243,7 +239,7 @@ async function work(c: Campaign, p: Progress) {
       batch.forEach((f, j) => {
         const site = sites[j];
         if (site) p.checked++;
-        const reason = judge(f, site, c.lead_type);
+        const reason = judge(f, site, c.lead_type, c.service);
         if (!reason || p.added >= c.max_leads) return void (reason || p.not_matching++);
         const r = insert.run(c.id, dedupKey(f.company_name, f.town), f.company_name, f.phone, f.email || site?.email || '',
           site?.url ?? f.website_url, f.address, f.postcode, f.town, f.industry, f.source, f.source_ref, f.website_url ? 1 : 0,
