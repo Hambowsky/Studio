@@ -45,9 +45,11 @@ const view = (c: Row) => ({ ...c, services: JSON.parse(c.services) as string[], 
 export function list() {
   return (db.prepare(`SELECT c.*, COALESCE((SELECT SUM(total) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent'), 0) AS unpaid,
     EXISTS (SELECT 1 FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent' AND i.due_on < date('now')) AS overdue,
-    (SELECT json_object('what', what, 'renews_on', renews_on) FROM renewals r WHERE r.customer_id = c.id AND r.cancelled_at IS NULL ORDER BY renews_on LIMIT 1) AS next_renewal
-    FROM customers c ORDER BY c.business_name COLLATE NOCASE`).all() as (Row & { unpaid: number; overdue: number; next_renewal: string | null })[])
-    .map(c => ({ ...view(c), unpaid: c.unpaid, overdue: !!c.overdue, next_renewal: c.next_renewal ? JSON.parse(c.next_renewal) as { what: string; renews_on: string } : null }));
+    (SELECT json_object('what', what, 'renews_on', renews_on) FROM renewals r WHERE r.customer_id = c.id AND r.cancelled_at IS NULL ORDER BY renews_on LIMIT 1) AS next_renewal,
+    (SELECT json_group_array(what) FROM renewals r WHERE r.customer_id = c.id AND r.cancelled_at IS NOT NULL) AS cancelled
+    FROM customers c ORDER BY c.business_name COLLATE NOCASE`).all() as (Row & { unpaid: number; overdue: number; next_renewal: string | null; cancelled: string })[])
+    .map(c => ({ ...view(c), unpaid: c.unpaid, overdue: !!c.overdue, next_renewal: c.next_renewal ? JSON.parse(c.next_renewal) as { what: string; renews_on: string } : null,
+      cancelled: JSON.parse(c.cancelled) as string[] }));
 }
 
 // Every invoice, newest first, with who it is for, for the Invoices page.
