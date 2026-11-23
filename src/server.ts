@@ -396,6 +396,8 @@ export function buildApp() {
     type: 'object', required: ['what', 'renews_on'], additionalProperties: false, properties: { what: { type: 'string', minLength: 1, maxLength: 200 },
       renews_on: { type: 'string', format: 'date' }, cost: { anyOf: [{ type: 'number', minimum: 0 }, { type: 'null' }] } } } } }, async req => customers.addRenewal(req.params.id, req.body));
   app.delete<{ Params: { id: number } }>('/renewals/:id', { schema: { params: id } }, async req => customers.deleteRenewal(req.params.id));
+  app.post<{ Params: { id: number }; Body: { cancelled: boolean } }>('/renewals/:id/cancelled', { schema: { params: id, body: { type: 'object', required: ['cancelled'],
+    additionalProperties: false, properties: { cancelled: { type: 'boolean' } } } } }, async req => customers.cancelRenewal(req.params.id, req.body.cancelled));
   app.post<{ Params: { id: number } }>('/renewals/:id/renewed', { schema: { params: id } }, async req => customers.renewed(req.params.id));
   app.post<{ Params: { id: number } }>('/customers/:id/check', { schema: { params: id } }, async req => { customers.get(req.params.id); await customers.checkSite(req.params.id); return customers.get(req.params.id); });
   app.post<{ Params: { id: number } }>('/customers/:id/analytics', { schema: { params: id } }, async (req, reply) => { customers.get(req.params.id); return background(reply, () => customers.analytics(req.params.id)); });
