@@ -1885,7 +1885,7 @@
     $('cuCount').textContent = `${custList.length} customer${custList.length === 1 ? '' : 's'}`;
     $('cuRows').innerHTML = rows.map(c => `<tr data-customer="${c.id}" style="cursor:pointer"><td><b>${esc(c.business_name)}</b>${c.website_url ? `<br><span class="muted">${esc(c.website_url.replace(/^https?:\/\//, ''))}</span>` : ''}</td>
       <td>${esc(c.contact_name)}${c.email ? `<br><span class="muted">${esc(c.email)}</span>` : ''}</td><td>${c.services.map(x => `<span class="badge">${esc(x)}</span>`).join(' ')}</td>
-      <td>${renewalCell(c.next_renewal)}${c.site_check?.fails >= 2 ? ' <span class="badge bad">Website down</span>' : ''}</td><td>${sslCell(c.site_check)}</td></tr>`).join('')
+      <td>${renewalCell(c.next_renewal)}${c.cancelled.map(w => `<br><span class="badge">Cancelled</span> <span class="muted">${esc(w)}</span>`).join('')}${c.site_check?.fails >= 2 ? ' <span class="badge bad">Website down</span>' : ''}</td><td>${sslCell(c.site_check)}</td></tr>`).join('')
       || `<tr><td colspan="5" class="muted">${custList.length ? 'No customers match.' : 'No customers yet. Add one, or press Make a customer on a lead you have won.'}</td></tr>`;
   }
   function drawInvoices() {

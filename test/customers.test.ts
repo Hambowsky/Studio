@@ -267,7 +267,9 @@ test('a cancelled renewal is no longer due', async () => {
   const after = (await call('POST', `/renewals/${r.id}/cancelled`, { cancelled: true })).json();
   assert.ok(after.renewals.find((x: any) => x.id === r.id).cancelled_at);
   assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 0);
-  assert.notEqual((await call('GET', '/customers')).json().customers.find((x: any) => x.id === id).next_renewal?.what, 'Hosting');
+  const listed = (await call('GET', '/customers')).json().customers.find((x: any) => x.id === id);
+  assert.notEqual(listed.next_renewal?.what, 'Hosting');
+  assert.deepEqual(listed.cancelled, ['Hosting'], 'the customer list shows what was cancelled');
   await call('POST', `/renewals/${r.id}/cancelled`, { cancelled: false });
   assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 1);
   await call('DELETE', `/renewals/${r.id}`);
