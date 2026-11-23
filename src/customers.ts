@@ -28,16 +28,22 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.char
 const money = (n: number) => `£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ukDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
-const invoiceView = (i: Invoice) => ({ ...i, items: JSON.parse(i.items) as Item[], label: i.number ? `${settings().prefix}${String(i.number).padStart(4, '0')}` : 'Draft',
+const invoiceView = <T extends Invoice>(i: T) => ({ ...i, items: JSON.parse(i.items) as Item[], label: i.number ? `${settings().prefix}${String(i.number).padStart(4, '0')}` : 'Draft',
   overdue: i.status === 'sent' && !!i.due_on && i.due_on < today() });
 const view = (c: Row) => ({ ...c, services: JSON.parse(c.services) as string[], contact_name: name(c),
   recurring: c.recurring ? JSON.parse(c.recurring) as Recurring : null, site_check: c.site_check ? JSON.parse(c.site_check) as SiteCheck : null });
 
 export function list() {
   return (db.prepare(`SELECT c.*, COALESCE((SELECT SUM(total) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent'), 0) AS unpaid,
-    EXISTS (SELECT 1 FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent' AND i.due_on < date('now')) AS overdue
-    FROM customers c ORDER BY c.business_name COLLATE NOCASE`).all() as (Row & { unpaid: number; overdue: number })[]).map(c => ({ ...view(c), unpaid: c.unpaid, overdue: !!c.overdue }));
+    EXISTS (SELECT 1 FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent' AND i.due_on < date('now')) AS overdue,
+    (SELECT json_object('what', what, 'renews_on', renews_on) FROM renewals r WHERE r.customer_id = c.id ORDER BY renews_on LIMIT 1) AS next_renewal
+    FROM customers c ORDER BY c.business_name COLLATE NOCASE`).all() as (Row & { unpaid: number; overdue: number; next_renewal: string | null })[])
+    .map(c => ({ ...view(c), unpaid: c.unpaid, overdue: !!c.overdue, next_renewal: c.next_renewal ? JSON.parse(c.next_renewal) as { what: string; renews_on: string } : null }));
 }
+
+// Every invoice, newest first, with who it is for, for the Invoices page.
+export const invoices = () => (db.prepare(`SELECT i.*, c.business_name, c.email FROM invoices i JOIN customers c ON c.id = i.customer_id ORDER BY i.id DESC`).all() as
+  (Invoice & { business_name: string; email: string })[]).map(invoiceView);
 
 export function get(id: number) {
   const c = view(row(id));

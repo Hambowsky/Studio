@@ -370,6 +370,7 @@ export function buildApp() {
     additionalProperties: false, properties: { text: { type: 'string', minLength: 1, maxLength: 5000 } } } } }, async req => customers.addCustomerNote(req.params.id, req.body.text));
   app.post<{ Params: { id: number }; Body: { subject: string; body: string } }>('/customers/:id/email', { schema: { params: id, body: mailBody() } },
     async req => customers.email(req.params.id, req.body.subject, req.body.body));
+  app.get('/invoices', async () => customers.invoices());
   app.get('/invoice-settings', async () => customers.settings());
   app.put<{ Body: Partial<customers.InvoiceSettings> }>('/invoice-settings', { schema: { body: { type: 'object', additionalProperties: false, properties: {
     from: str(1000), payment: str(1000), prefix: str(20), start: { type: 'integer', minimum: 1 }, due_days: { type: 'integer', minimum: 0, maximum: 365 },

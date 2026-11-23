@@ -195,6 +195,8 @@ test('an overdue invoice shows on the Overview and can be chased with the PDF ag
   const inv = (await call('POST', `/customers/${id}/invoices`, { items: [{ description: 'Late one', qty: 1, price: 5 }] })).json();
   await call('POST', `/invoices/${inv.id}/send`, { message: 'x' });
   db.prepare(`UPDATE invoices SET due_on = date('now', '-3 days') WHERE id = ?`).run(inv.id);
+  const all = (await call('GET', '/invoices')).json();
+  assert.ok(all.some((i: any) => i.id === inv.id && i.business_name && i.overdue && /^RC-/.test(i.label)), 'every invoice is listed with its customer');
   const dash = (await call('GET', '/dashboard/sales')).json();
   assert.ok(dash.needs.invoices_overdue >= 1);
   assert.ok(dash.customers.count >= 1 && dash.customers.owed >= 5);
@@ -210,6 +212,8 @@ test('renewals warn from 30 days before and roll on a year when renewed', async 
   const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
   const c = (await call('POST', `/customers/${id}/renewals`, { what: 'Domain pipepros.co.uk', renews_on: soon, cost: 12 })).json();
   assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 1);
+  const listed = (await call('GET', '/customers')).json().customers.find((x: any) => x.id === id);
+  assert.deepEqual(listed.next_renewal, { what: 'Domain pipepros.co.uk', renews_on: soon }, 'the customer list shows the next renewal');
   const r = c.renewals[0];
   const after = (await call('POST', `/renewals/${r.id}/renewed`)).json().renewals[0];
   assert.equal(after.renews_on, `${Number(soon.slice(0, 4)) + 1}${soon.slice(4)}`);
