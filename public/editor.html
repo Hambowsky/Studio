@@ -1985,7 +1985,7 @@
         ${panel ? `<div class="cu-panel" id="cuPanel">${PANELS[panel](c)}<span id="cuPanelOut"></span></div>` : ''}` : ''}
       <div class="cols two">
         <label>Business name <input id="cuName" value="${esc(c.business_name)}" maxlength="200"></label>
-        <label>Website <input id="cuSite" value="${esc(c.website_url)}" placeholder="https://"></label>
+        <label>Website <span class="row" style="flex-wrap:nowrap"><input id="cuSite" value="${esc(c.website_url)}" placeholder="https://" style="flex:1"><a class="button plain small" href="${esc(c.website_url)}" target="_blank" rel="noopener" data-open="cuSite">Open</a></span></label>
         <label>First name <input id="cuFirst" value="${esc(c.first_name)}"></label>
         <label>Surname <input id="cuLast" value="${esc(c.last_name)}"></label>
         <label>Email <input id="cuEmail" type="email" value="${esc(c.email)}"></label>
@@ -2000,7 +2000,7 @@
           <input id="cu_${k}_sup" value="${esc(c[`${k}_supplier`] ?? '')}" maxlength="120" placeholder="Supplier. ${ph}" style="flex:1;min-width:160px"></div>`).join('')}</div>
       <div class="fields" style="gap:6px"><label class="chip" style="justify-self:start;width:max-content"><input type="checkbox" id="cuWp" ${c.wordpress ? 'checked' : ''}>The website is WordPress</label>
         <div class="cols two" id="cuWpBox" ${c.wordpress ? '' : 'hidden'}>
-          ${[['cuWpUrl', 'Login address', c.wp_login_url, 'url', 'https://their-site.co.uk/wp-admin'], ['cuWpUser', 'Username', c.wp_username, 'text', ''], ['cuWpPass', 'Password', c.wp_password, 'password', '']].map(([id, label, v, type, ph]) => `<label>${label}
+          ${[['cuWpUrl', 'Login address', c.wp_login_url || wpAdmin(c.website_url), 'url', 'https://their-site.co.uk/wp-admin'], ['cuWpUser', 'Username', c.wp_username, 'text', ''], ['cuWpPass', 'Password', c.wp_password, 'password', '']].map(([id, label, v, type, ph]) => `<label>${label}
             <span class="row" style="flex-wrap:nowrap"><input id="${id}" type="${type}" value="${esc(v ?? '')}" placeholder="${ph}" autocomplete="off" style="flex:1">
             ${type === 'password' ? `<button type="button" class="plain small" data-show="${id}">Show</button>` : ''}${type === 'url' ? `<a class="button plain small" href="${esc(v ?? '')}" target="_blank" rel="noopener" data-open="${id}">Open</a>` : ''}<button type="button" class="plain small" data-copy="${id}">Copy</button></span></label>`).join('')}
           <p class="muted" style="grid-column:1/-1">Kept encrypted. Press Save to keep changes.</p></div></div>
@@ -2056,15 +2056,19 @@
   }
   $('custDialog').addEventListener('input', e => { if (e.target.closest('#invLines')) invTotal(); });
   // Picking a product fills the line's description, and its price when it has one.
+  // WordPress logins are all at /wp-admin, so the login address starts as the website's.
+  const wpAdmin = site => { try { return site ? new URL('/wp-admin', /^https?:\/\//i.test(site) ? site : `https://${site}`).href : ''; } catch { return ''; } };
   // WordPress login: shown when ticked, with Show, Open and Copy.
   $('custDialog').addEventListener('click', async e => {
     const t = e.target.closest('[data-copy], [data-show], [data-open]'); if (!t) return;
-    if (t.dataset.open) { const u = $(t.dataset.open).value.trim(); if (!/^https?:\/\//i.test(u)) { e.preventDefault(); return; } t.href = u; return; }
+    if (t.dataset.open) { let u = $(t.dataset.open).value.trim(); if (u && !/^https?:\/\//i.test(u)) u = `https://${u}`; if (!u) { e.preventDefault(); return; } t.href = u; return; }
     if (t.dataset.show) { const i = $(t.dataset.show), hide = i.type === 'text'; i.type = hide ? 'password' : 'text'; t.textContent = hide ? 'Show' : 'Hide'; return; }
     try { await navigator.clipboard.writeText($(t.dataset.copy).value); t.textContent = 'Copied'; } catch { t.textContent = 'Could not copy'; }
     setTimeout(() => { t.textContent = 'Copy'; }, 1500);
   });
-  $('custDialog').addEventListener('change', e => { if (e.target.id === 'cuWp') $('cuWpBox').hidden = !e.target.checked; });
+  $('custDialog').addEventListener('change', e => { if (e.target.id === 'cuWp') $('cuWpBox').hidden = !e.target.checked;
+    if (e.target.id === 'cuWp' || e.target.id === 'cuSite') if (!$('cuWpUrl').value || $('cuWpUrl').dataset.auto) { $('cuWpUrl').value = wpAdmin($('cuSite').value); $('cuWpUrl').dataset.auto = '1'; } });
+  $('custDialog').addEventListener('input', e => { if (e.target.id === 'cuWpUrl') delete e.target.dataset.auto; });
   $('custDialog').addEventListener('change', async e => { const id = e.target.dataset.renCancel; if (!id) return;
     if (e.target.checked && !confirm('Mark this as cancelled? It will stop showing as due.')) { e.target.checked = false; return; }
     try { await api(`/renewals/${id}/cancelled`, { method: 'POST', body: JSON.stringify({ cancelled: e.target.checked }) }); openCustomer(cust.id); loadCustomers(); }
