@@ -1885,7 +1885,7 @@
     $('cuCount').textContent = `${custList.length} customer${custList.length === 1 ? '' : 's'}`;
     $('cuRows').innerHTML = rows.map(c => `<tr data-customer="${c.id}" style="cursor:pointer"><td><b>${esc(c.business_name)}</b>${c.website_url ? `<br><span class="muted">${esc(c.website_url.replace(/^https?:\/\//, ''))}</span>` : ''}</td>
       <td>${esc(c.contact_name)}${c.email ? `<br><span class="muted">${esc(c.email)}</span>` : ''}</td><td>${c.services.map(x => `<span class="badge">${esc(x)}</span>`).join(' ')}</td>
-      <td>${renewalCell(c.next_renewal)}${c.cancelled.map(w => `<br><span class="badge">Cancelled</span> <span class="muted">${esc(w)}</span>`).join('')}${c.site_check?.fails >= 2 ? ' <span class="badge bad">Website down</span>' : ''}</td><td>${sslCell(c.site_check)}</td></tr>`).join('')
+      <td>${renewalCell(c.next_renewal)}${[['hosting', 'Hosted'], ['domain', 'Domain']].filter(([k]) => c[`${k}_external`]).map(([k, l]) => `<br><span class="muted">${l} elsewhere${c[`${k}_supplier`] ? `: ${esc(c[`${k}_supplier`])}` : ''}</span>`).join('')}${c.cancelled.map(w => `<br><span class="badge">Cancelled</span> <span class="muted">${esc(w)}</span>`).join('')}${c.site_check?.fails >= 2 ? ' <span class="badge bad">Website down</span>' : ''}</td><td>${sslCell(c.site_check)}</td></tr>`).join('')
       || `<tr><td colspan="5" class="muted">${custList.length ? 'No customers match.' : 'No customers yet. Add one, or press Make a customer on a lead you have won.'}</td></tr>`;
   }
   function drawInvoices() {
@@ -1995,6 +1995,9 @@
       <div class="fields" style="gap:6px"><strong>Services they have with us</strong>
         <div class="chips" id="cuServices">${custServices.map(x => `<label class="chip"><input type="checkbox" value="${esc(x)}" ${c.services.includes(x) ? 'checked' : ''}>${esc(x)}</label>`).join('')}</div>
         <label>Anything else (comma separated) <input id="cuOther" value="${esc(others.join(', '))}"></label></div>
+      <div class="fields" style="gap:6px"><strong>Hosting and domain</strong><span class="muted">Tick when it is not with you, so there is nothing for them to pay you.</span>
+        ${[['hosting', 'Website hosted elsewhere', 'Such as GoDaddy'], ['domain', 'Domain registered elsewhere', 'Such as 123 Reg']].map(([k, label, ph]) => `<div class="row"><label class="chip"><input type="checkbox" id="cu_${k}_ext" ${c[`${k}_external`] ? 'checked' : ''}>${label}</label>
+          <input id="cu_${k}_sup" value="${esc(c[`${k}_supplier`] ?? '')}" maxlength="120" placeholder="Supplier. ${ph}" style="flex:1;min-width:160px"></div>`).join('')}</div>
       <details><summary class="muted">Google Analytics and Search Console</summary><div class="cols two">
         <label>Google Analytics property id <input id="cuGa" value="${esc(c.ga4_property)}" inputmode="numeric" placeholder="Such as 123456789"></label>
         <label>Search Console property <input id="cuGsc" value="${esc(c.gsc_site)}" placeholder="Blank uses their website's domain"></label></div>
@@ -2019,6 +2022,7 @@
   }
   const custForm = () => ({ business_name: $('cuName').value, first_name: $('cuFirst').value, last_name: $('cuLast').value, email: $('cuEmail').value, phone: $('cuPhone').value,
     address: $('cuAddress').value, website_url: $('cuSite').value, ga4_property: $('cuGa').value.replace(/\D/g, ''), gsc_site: $('cuGsc').value,
+    hosting_external: $('cu_hosting_ext').checked ? '1' : '', hosting_supplier: $('cu_hosting_sup').value, domain_external: $('cu_domain_ext').checked ? '1' : '', domain_supplier: $('cu_domain_sup').value,
     services: [...[...$('cuServices').querySelectorAll('input:checked')].map(i => i.value), ...$('cuOther').value.split(',').map(x => x.trim()).filter(Boolean)] });
   const invForm = () => ({ items: [...$('invLines').querySelectorAll('.inv-line')].map(l => { const v = k => l.querySelector(`[data-i="${k}"]`).value;
     return { description: v('description').trim(), qty: Number(v('qty')) || 0, price: Number(v('price')) || 0 }; }).filter(l => l.description), note: $('invNote').value });
