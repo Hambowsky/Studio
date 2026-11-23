@@ -156,6 +156,14 @@ export function createInvoice(id: number, inv: InvoiceInput) {
     .run(id, JSON.stringify(items), inv.note ?? '', s.vat_rate, totals(items, s.vat_rate).total, inv.due_days ?? s.due_days);
   return invoiceView(getInvoice(Number(r.lastInsertRowid)));
 }
+// A draft can be changed until it is sent (a numbered one keeps its number, so only unsent drafts).
+export function updateInvoice(id: number, inv: InvoiceInput) {
+  const i = getInvoice(id), s = settings(), items = inv.items.filter(l => l.description.trim());
+  if (i.status !== 'draft') fail(409, 'Only a draft invoice can be changed');
+  if (!items.length) fail(400, 'Add at least one line to the invoice');
+  db.prepare('UPDATE invoices SET items = ?, note = ?, vat_rate = ?, total = ? WHERE id = ?').run(JSON.stringify(items), inv.note ?? '', s.vat_rate, totals(items, s.vat_rate).total, id);
+  return invoiceView(getInvoice(id));
+}
 const getInvoice = (id: number) => (db.prepare('SELECT * FROM invoices WHERE id = ?').get(id) as Invoice | undefined) ?? fail(404, `There is no invoice ${id}`);
 
 export function deleteInvoice(id: number) {
@@ -416,8 +424,22 @@ export function deleteRenewal(id: number) { const r = getRenewal(id); db.prepare
 export function cancelRenewal(id: number, cancelled: boolean) {
   const r = getRenewal(id);
   db.prepare('UPDATE renewals SET cancelled_at = ? WHERE id = ?').run(cancelled ? new Date().toISOString() : null, id);
+  if (cancelled) db.prepare(`DELETE FROM invoices WHERE renewal_id = ? AND status = 'draft' AND number IS NULL`).run(id); // its unsent invoice goes too
   log(r.customer_id, 'note', `${cancelled ? 'Cancelled' : 'Restarted'} ${r.what}`);
   return get(r.customer_id);
+}
+// 14 days before a renewal, a draft invoice for it (its cost, or 0 to fill in) waits for David to check and send.
+// Each renewal date is drafted once, so a deleted draft is not made again.
+export function draftRenewals(on = today()) {
+  const due = db.prepare(`SELECT * FROM renewals WHERE cancelled_at IS NULL AND renews_on BETWEEN ? AND ?`).all(on, addDays(on, 14)) as { id: number; customer_id: number; what: string; renews_on: string; cost: number | null }[];
+  const s = settings(), made: number[] = [];
+  for (const r of due) {
+    const items = [{ description: r.what, qty: 1, price: r.cost ?? 0 }];
+    const x = db.prepare(`INSERT INTO invoices (customer_id, items, note, vat_rate, total, due_days, renewal_id, renewal_on) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`)
+      .run(r.customer_id, JSON.stringify(items), `Renewal due ${ukDate(r.renews_on)}`, s.vat_rate, totals(items, s.vat_rate).total, s.due_days, r.id, r.renews_on);
+    if (x.changes) { made.push(Number(x.lastInsertRowid)); log(r.customer_id, 'invoice', `Drafted the renewal invoice for ${r.what}, due ${ukDate(r.renews_on)}`); }
+  }
+  return made;
 }
 // Renewed: the date moves on a year.
 export function renewed(id: number) {
@@ -478,6 +500,7 @@ export function needs() {
   const n = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
   return {
     invoices_overdue: n(`SELECT COUNT(*) AS n FROM invoices WHERE status = 'sent' AND due_on < date('now')`),
+    invoices_to_send: n(`SELECT COUNT(*) AS n FROM invoices WHERE renewal_id IS NOT NULL AND status = 'draft' AND error IS NULL`),
     invoices_to_check: n(`SELECT COUNT(*) AS n FROM invoices WHERE (status = 'draft' AND error IS NOT NULL) OR status = 'sending'`),
     renewals_due: n(`SELECT COUNT(*) AS n FROM renewals WHERE cancelled_at IS NULL AND renews_on <= date('now', '+30 days')`)
       + n(`SELECT COUNT(*) AS n FROM customers WHERE json_extract(site_check, '$.ssl_expires') <= date('now', '+14 days')`),
@@ -492,9 +515,9 @@ export function logReply(from: string, subject: string) {
   return !!c;
 }
 
-// Hourly: website checks, then any monthly invoices due (from 9am UTC, so they arrive in working hours).
+// Hourly: renewal invoice drafts, website checks, then any monthly invoices due (from 9am UTC, so they arrive in working hours).
 export function startCustomers() {
-  const tick = async () => { await checkSites(); if (new Date().getUTCHours() >= 9) await sendMonthly().catch(() => {}); };
+  const tick = async () => { try { draftRenewals(); } catch { /* tried again next hour */ } await checkSites(); if (new Date().getUTCHours() >= 9) await sendMonthly().catch(() => {}); };
   setTimeout(() => void tick(), 60_000).unref();
   setInterval(() => void tick(), 60 * 60_000).unref();
 }

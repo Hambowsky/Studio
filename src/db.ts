@@ -366,6 +366,10 @@ const migrations = [
   `ALTER TABLE campaigns ADD COLUMN service TEXT NOT NULL DEFAULT 'web_design'`, // what the campaign sells: a key of SERVICES in services.ts
 
   `ALTER TABLE renewals ADD COLUMN cancelled_at TEXT`, // the customer cancelled it: no longer due, kept for the record
+
+  `ALTER TABLE invoices ADD COLUMN renewal_id INTEGER;  -- a draft made 14 days before a renewal, for David to approve
+   ALTER TABLE invoices ADD COLUMN renewal_on TEXT;     -- the renewal date it is for, so each renewal is drafted once
+   CREATE UNIQUE INDEX invoices_renewal ON invoices (renewal_id, renewal_on)`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

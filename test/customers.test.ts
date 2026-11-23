@@ -274,3 +274,22 @@ test('a cancelled renewal is no longer due', async () => {
   assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 1);
   await call('DELETE', `/renewals/${r.id}`);
 });
+
+test('a renewal gets a draft invoice 14 days before, once, for David to change and send', async () => {
+  const { draftRenewals } = await import('../src/customers.ts');
+  const on = new Date().toISOString().slice(0, 10), in10 = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10), in20 = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
+  const c = (await call('POST', `/customers/${id}/renewals`, { what: 'Hosting for a year', renews_on: in10, cost: 120 })).json();
+  await call('POST', `/customers/${id}/renewals`, { what: 'Domain later', renews_on: in20, cost: 12 });
+  const r = c.renewals.find((x: any) => x.what === 'Hosting for a year');
+  assert.equal(draftRenewals(on).length, 1, 'only the one due within 14 days');
+  assert.equal(draftRenewals(on).length, 0, 'drafted once');
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.invoices_to_send, 1);
+  const inv = (await call('GET', `/customers/${id}`)).json().invoices.find((i: any) => i.renewal_id === r.id);
+  assert.deepEqual(inv.items, [{ description: 'Hosting for a year', qty: 1, price: 120 }]);
+  assert.equal(inv.status, 'draft');
+  const changed = (await call('PUT', `/invoices/${inv.id}`, { items: [{ description: 'Hosting for a year', qty: 1, price: 150 }], note: 'Thanks' })).json();
+  assert.equal(changed.total, 150);
+  await call('POST', `/renewals/${r.id}/cancelled`, { cancelled: true });
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.invoices_to_send, 0, 'cancelling drops its unsent draft');
+  for (const x of (await call('GET', `/customers/${id}`)).json().renewals) await call('DELETE', `/renewals/${x.id}`);
+});

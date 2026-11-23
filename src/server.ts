@@ -386,6 +386,7 @@ export function buildApp() {
     additionalProperties: false, properties: { message: { type: 'string', minLength: 1, maxLength: 20000 } } } } }, async req => customers.sendInvoice(req.params.id, req.body.message));
   app.post<{ Params: { id: number }; Body: { paid: boolean } }>('/invoices/:id/paid', { schema: { params: id, body: { type: 'object', required: ['paid'],
     additionalProperties: false, properties: { paid: { type: 'boolean' } } } } }, async req => customers.markPaid(req.params.id, req.body.paid));
+  app.put<{ Params: { id: number }; Body: customers.InvoiceInput }>('/invoices/:id', { schema: { params: id, body: invBody } }, async req => customers.updateInvoice(req.params.id, req.body));
   app.delete<{ Params: { id: number } }>('/invoices/:id', { schema: { params: id } }, async req => customers.deleteInvoice(req.params.id));
   app.post<{ Params: { id: number }; Body: { message?: string } }>('/invoices/:id/remind', { schema: { params: id, body: { type: 'object', additionalProperties: false,
     properties: { message: { type: 'string', minLength: 1, maxLength: 20000 } } } } }, async req => customers.remind(req.params.id, req.body?.message));
