@@ -301,3 +301,14 @@ test('a customer can have hosting or a domain elsewhere, with the supplier', asy
   assert.equal((await call('GET', '/customers')).json().customers.find((x: any) => x.id === id).hosting_supplier, 'GoDaddy');
   assert.equal((await call('PUT', `/customers/${id}`, { hosting_external: 'yes' })).statusCode, 400);
 });
+
+test('a WordPress login is kept encrypted and only shown on the customer page', async () => {
+  const c = (await call('PUT', `/customers/${id}`, { wordpress: '1', wp_login_url: 'https://pipepros.co.uk/wp-admin', wp_username: 'admin', wp_password: ' s3cret pass ' })).json();
+  assert.equal(c.wp_password, ' s3cret pass ', 'not trimmed');
+  const stored = (db.prepare('SELECT wp_password FROM customers WHERE id = ?').get(id) as { wp_password: string }).wp_password;
+  assert.ok(stored && !stored.includes('s3cret'), 'not stored as plain text');
+  const listed = (await call('GET', '/customers')).json().customers.find((x: any) => x.id === id);
+  assert.equal(listed.wp_password, undefined, 'the list never carries it');
+  assert.equal(listed.wp_username, 'admin');
+  assert.equal((await call('PUT', `/customers/${id}`, { wp_password: '' })).json().wp_password, '');
+});

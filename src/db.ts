@@ -375,6 +375,11 @@ const migrations = [
    ALTER TABLE customers ADD COLUMN hosting_supplier TEXT NOT NULL DEFAULT '';
    ALTER TABLE customers ADD COLUMN domain_external TEXT NOT NULL DEFAULT '';   -- '1' when their domain is registered elsewhere
    ALTER TABLE customers ADD COLUMN domain_supplier TEXT NOT NULL DEFAULT ''`,
+
+  `ALTER TABLE customers ADD COLUMN wordpress TEXT NOT NULL DEFAULT '';    -- '1' when their website is WordPress
+   ALTER TABLE customers ADD COLUMN wp_login_url TEXT NOT NULL DEFAULT '';
+   ALTER TABLE customers ADD COLUMN wp_username TEXT NOT NULL DEFAULT '';
+   ALTER TABLE customers ADD COLUMN wp_password TEXT NOT NULL DEFAULT ''`, // encrypted (AES-256-GCM), see secret() in customers.ts
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

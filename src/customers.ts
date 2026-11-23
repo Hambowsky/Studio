@@ -1,8 +1,11 @@
 // Customers: the businesses Red Cherry IT works for. Their details, notes, emails from David's own mailbox,
 // invoices as PDFs, their website's numbers from Google, and a monthly report. Plain code, no Claude.
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import tls from 'node:tls';
 import { db } from './db.ts';
-import { fail, GA4_API_URL, GSC_CREDENTIALS, SMTP_FROM, SMTP_HOST } from './config.ts';
+import { DATA_DIR, fail, GA4_API_URL, GSC_CREDENTIALS, SMTP_FROM, SMTP_HOST } from './config.ts';
 import { lead, updateLead, addNote } from './leads.ts';
 import { transport } from './outreach.ts';
 import { pdf } from './render.ts';
@@ -21,7 +24,22 @@ export function saveProducts(list: Product[]) {
   return v;
 }
 const FIELDS = ['business_name', 'first_name', 'last_name', 'email', 'phone', 'address', 'website_url', 'ga4_property', 'gsc_site',
-  'hosting_external', 'hosting_supplier', 'domain_external', 'domain_supplier'] as const;
+  'hosting_external', 'hosting_supplier', 'domain_external', 'domain_supplier', 'wordpress', 'wp_login_url', 'wp_username', 'wp_password'] as const;
+
+// Client passwords are kept encrypted, so a copy of the database alone does not give them away. The key is
+// CREDENTIALS_KEY when set, otherwise a random one made once in the data folder (keep it with the database).
+let key: Buffer | undefined;
+const secretKey = () => key ??= process.env.CREDENTIALS_KEY ? crypto.createHash('sha256').update(process.env.CREDENTIALS_KEY).digest() : (() => {
+  const file = path.join(DATA_DIR, 'credentials.key');
+  if (!fs.existsSync(file)) fs.writeFileSync(file, crypto.randomBytes(32).toString('base64'), { mode: 0o600, flag: 'wx' });
+  return Buffer.from(fs.readFileSync(file, 'utf8'), 'base64');
+})();
+const seal = (text: string) => { if (!text) return '';
+  const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', secretKey(), iv), body = Buffer.concat([c.update(text, 'utf8'), c.final()]);
+  return [iv, c.getAuthTag(), body].map(b => b.toString('base64')).join('.'); };
+const unseal = (sealed: string) => { if (!sealed) return '';
+  try { const [iv, tag, body] = sealed.split('.').map(b => Buffer.from(b, 'base64')), d = crypto.createDecipheriv('aes-256-gcm', secretKey(), iv); d.setAuthTag(tag);
+    return Buffer.concat([d.update(body), d.final()]).toString('utf8'); } catch { return ''; } }; // a lost key reads as blank, to be typed in again
 export type CustomerInput = Partial<Record<typeof FIELDS[number], string>> & { services?: string[] };
 type Row = Record<typeof FIELDS[number], string> & { id: number; services: string; lead_id: number | null; recurring: string | null; site_check: string | null; created_at: string; updated_at: string };
 type Item = { description: string; qty: number; price: number };
@@ -40,7 +58,7 @@ const ukDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'nu
 
 const invoiceView = <T extends Invoice>(i: T) => ({ ...i, items: JSON.parse(i.items) as Item[], label: i.number ? `${settings().prefix}${String(i.number).padStart(4, '0')}` : 'Draft',
   overdue: i.status === 'sent' && !!i.due_on && i.due_on < today() });
-const view = (c: Row) => ({ ...c, services: JSON.parse(c.services) as string[], contact_name: name(c),
+const view = (c: Row) => ({ ...c, wp_password: unseal(c.wp_password), services: JSON.parse(c.services) as string[], contact_name: name(c),
   recurring: c.recurring ? JSON.parse(c.recurring) as Recurring : null, site_check: c.site_check ? JSON.parse(c.site_check) as SiteCheck : null });
 
 export function list() {
@@ -49,7 +67,7 @@ export function list() {
     (SELECT json_object('what', what, 'renews_on', renews_on) FROM renewals r WHERE r.customer_id = c.id AND r.cancelled_at IS NULL ORDER BY renews_on LIMIT 1) AS next_renewal,
     (SELECT json_group_array(what) FROM renewals r WHERE r.customer_id = c.id AND r.cancelled_at IS NOT NULL) AS cancelled
     FROM customers c ORDER BY c.business_name COLLATE NOCASE`).all() as (Row & { unpaid: number; overdue: number; next_renewal: string | null; cancelled: string })[])
-    .map(c => ({ ...view(c), unpaid: c.unpaid, overdue: !!c.overdue, next_renewal: c.next_renewal ? JSON.parse(c.next_renewal) as { what: string; renews_on: string } : null,
+    .map(c => ({ ...view(c), wp_password: undefined, unpaid: c.unpaid, overdue: !!c.overdue, next_renewal: c.next_renewal ? JSON.parse(c.next_renewal) as { what: string; renews_on: string } : null,
       cancelled: JSON.parse(c.cancelled) as string[] }));
 }
 
@@ -66,7 +84,7 @@ export function get(id: number) {
     service_email: GSC_CREDENTIALS ? serviceEmail() : '' };
 }
 
-const clean = (c: CustomerInput) => Object.fromEntries(FIELDS.filter(f => c[f] !== undefined).map(f => [f, c[f]!.trim()]));
+const clean = (c: CustomerInput) => Object.fromEntries(FIELDS.filter(f => c[f] !== undefined).map(f => [f, f === 'wp_password' ? seal(c[f]!) : c[f]!.trim()]));
 
 export function create(c: CustomerInput, leadId: number | null = null) {
   const v = clean(c);
