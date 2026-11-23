@@ -574,7 +574,7 @@
     <div class="card-head"><h2>Customers</h2><div class="row"><span class="muted" id="cuCount"></span><button type="button" class="small" id="cuAdd">Add a customer</button></div></div>
     <label>Search <input id="cuSearch" type="search" placeholder="Business, name, email or service"></label>
     <div class="table"><table>
-      <thead><tr><th>Business</th><th>Contact</th><th>Services</th><th>Renewal</th></tr></thead>
+      <thead><tr><th>Business</th><th>Contact</th><th>Services</th><th>Renewal</th><th>SSL expires</th></tr></thead>
       <tbody id="cuRows"></tbody>
     </table></div>
   </div>
@@ -1849,6 +1849,10 @@
   const renewalCell = r => { if (!r) return '';
     const days = Math.round((Date.parse(r.renews_on) - Date.now()) / 864e5), when = new Date(r.renews_on).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     return `${days <= 30 ? `<span class="badge ${days < 0 ? 'bad' : 'pending'}">${esc(when)}</span>` : esc(when)}<br><span class="muted">${esc(r.what)}</span>`; };
+  // When the website's SSL certificate runs out, flagged within 14 days (the same as the Overview).
+  const sslCell = k => { if (!k?.ssl_expires) return '';
+    const days = Math.round((Date.parse(k.ssl_expires) - Date.now()) / 864e5), when = new Date(k.ssl_expires).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return days <= 14 ? `<span class="badge bad">${esc(when)}</span>` : esc(when); };
   async function loadCustomers() {
     const r = await (await api('/customers')).json();
     custList = r.customers; custServices = r.services;
@@ -1875,8 +1879,8 @@
     $('cuCount').textContent = `${custList.length} customer${custList.length === 1 ? '' : 's'}`;
     $('cuRows').innerHTML = rows.map(c => `<tr data-customer="${c.id}" style="cursor:pointer"><td><b>${esc(c.business_name)}</b>${c.website_url ? `<br><span class="muted">${esc(c.website_url.replace(/^https?:\/\//, ''))}</span>` : ''}</td>
       <td>${esc(c.contact_name)}${c.email ? `<br><span class="muted">${esc(c.email)}</span>` : ''}</td><td>${c.services.map(x => `<span class="badge">${esc(x)}</span>`).join(' ')}</td>
-      <td>${renewalCell(c.next_renewal)}${c.site_check?.fails >= 2 ? ' <span class="badge bad">Website down</span>' : ''}</td></tr>`).join('')
-      || `<tr><td colspan="4" class="muted">${custList.length ? 'No customers match.' : 'No customers yet. Add one, or press Make a customer on a lead you have won.'}</td></tr>`;
+      <td>${renewalCell(c.next_renewal)}${c.site_check?.fails >= 2 ? ' <span class="badge bad">Website down</span>' : ''}</td><td>${sslCell(c.site_check)}</td></tr>`).join('')
+      || `<tr><td colspan="5" class="muted">${custList.length ? 'No customers match.' : 'No customers yet. Add one, or press Make a customer on a lead you have won.'}</td></tr>`;
   }
   function drawInvoices() {
     const show = $('ivShow').value;
