@@ -1257,7 +1257,7 @@
     [nd.follow_ups_due, ['lead ready for a follow up email', 'leads ready for a follow up email'], '#emails'], [nd.call_backs_due, ['follow up date due today or earlier', 'follow up dates due today or earlier'], '#leads'],
     [nd.emails_to_check, ['email that failed or needs checking', 'emails that failed or need checking'], '#emails'],
     [nd.sites_down, ["customer's website is down", "customers' websites are down"], '#customers'], [nd.invoices_overdue, ['invoice is overdue', 'invoices are overdue'], '#invoices'],
-    [nd.invoices_to_check, ['invoice did not send', 'invoices did not send'], '#invoices'], [nd.renewals_due, ['renewal is due in the next 30 days', 'renewals are due in the next 30 days'], '#customers']];
+    [nd.invoices_to_send, ['renewal invoice ready to check and send', 'renewal invoices ready to check and send'], '#invoices'], [nd.invoices_to_check, ['invoice did not send', 'invoices did not send'], '#invoices'], [nd.renewals_due, ['renewal is due in the next 30 days', 'renewals are due in the next 30 days'], '#customers']];
 
   // Small pictures for the Overview: a line over time, a ring for a share, a split bar.
   const spark = rows => {
@@ -1898,17 +1898,18 @@
     $('ivRows').innerHTML = rows.map(i => `<tr><td><b>${esc(i.label)}</b></td><td><a href="#invoices" data-iv-cust="${i.customer_id}">${esc(i.business_name)}</a></td><td>${money(i.total)}</td>
       <td>${i.issued_on ? esc(dm(i.issued_on)) : '<span class="muted">Not sent</span>'}${i.due_on && i.status === 'sent' ? `<br><span class="muted">due ${esc(dm(i.due_on))}</span>` : ''}</td><td>${badge(i)}</td>
       <td><span class="row"><button type="button" class="plain small" data-iv-pdf="${i.id}">PDF</button>${i.overdue ? `<button type="button" class="small" data-iv-remind="${i.id}">Send a reminder</button>` : ''}
-        ${i.status === 'sent' ? `<button type="button" class="plain small" data-iv-paid="${i.id}">Mark paid</button>` : ''}${i.status === 'draft' ? `<button type="button" class="plain small" data-iv-cust="${i.customer_id}">Open</button>` : ''}</span></td></tr>`).join('')
+        ${i.status === 'sent' ? `<button type="button" class="plain small" data-iv-paid="${i.id}">Mark paid</button>` : ''}${i.status === 'draft' ? `<button type="button" class="small" data-iv-edit="${i.id}">Check and send</button>` : ''}</span></td></tr>`).join('')
       || `<tr><td colspan="6" class="muted">${invList.length ? 'No invoices match.' : 'No invoices yet. Pick a customer and press New invoice.'}</td></tr>`;
   }
   $('ivShow').addEventListener('change', drawInvoices);
   $('ivNew').addEventListener('click', () => { const id = Number($('ivCustomer').value); if (!id) { $('ivOut').innerHTML = '<span class="bad">Pick a customer first</span>'; return; } $('ivOut').textContent = ''; openCustomer(id, 'invoice'); });
   $('ivRows').addEventListener('click', async e => {
-    const t = e.target.closest('[data-iv-pdf], [data-iv-remind], [data-iv-paid], [data-iv-cust]');
+    const t = e.target.closest('[data-iv-pdf], [data-iv-remind], [data-iv-paid], [data-iv-cust], [data-iv-edit]');
     if (!t) return;
     e.preventDefault();
     try {
       if (t.dataset.ivCust) return openCustomer(Number(t.dataset.ivCust));
+      if (t.dataset.ivEdit) { const i = invList.find(x => x.id === Number(t.dataset.ivEdit)); return openCustomer(i.customer_id, 'invoice', i); }
       if (t.dataset.ivPdf) return await openPdf(`/invoices/${t.dataset.ivPdf}/pdf`);
       t.disabled = true;
       if (t.dataset.ivPaid) await api(`/invoices/${t.dataset.ivPaid}/paid`, { method: 'POST', body: JSON.stringify({ paid: true }) });
@@ -1942,7 +1943,7 @@
     } catch (err) { $('isOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
   });
 
-  let cust = null;
+  let cust = null, editInv = null; // editInv: the draft invoice open in the invoice panel, if any
   const signOff = '\n\nKind regards,\nDavid Hanmer\nRed Cherry IT';
   const hi = c => `Hi ${c.first_name || 'there'},\n\n`;
   const invLine = (l = { description: '', qty: 1, price: '' }) => `<div class="inv-line"><select data-i="product" aria-label="Product"><option value="">Pick a product</option>${custProducts.map((p, i) => `<option value="${i}" ${p.name === l.description ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><input data-i="description" placeholder="What it is for" value="${esc(l.description)}">
@@ -1951,9 +1952,9 @@
   const PANELS = {
     email: c => `<label>Subject <input id="cuSubject" maxlength="200"></label><label>Message <textarea id="cuBody" rows="9">${esc(hi(c) + signOff)}</textarea></label>
       <div class="row"><button type="button" data-cu="sendEmail">Send to ${esc(c.email)}</button></div>`,
-    invoice: c => `<div id="invLines" class="fields" style="gap:8px">${invLine()}</div>
+    invoice: c => `${editInv ? '<p class="muted">Changing the draft invoice. Save it, or send it as it is now.</p>' : ''}<div id="invLines" class="fields" style="gap:8px">${(editInv?.items ?? [undefined]).map(l => invLine(l)).join('')}</div>
       <div class="row"><button type="button" class="plain small" data-cu="addLine">Add a line</button><b id="invTotal"></b></div>
-      <label>Note on the invoice (optional) <textarea id="invNote" rows="2" placeholder="Such as the month it covers"></textarea></label>
+      <label>Note on the invoice (optional) <textarea id="invNote" rows="2" placeholder="Such as the month it covers">${esc(editInv?.note ?? '')}</textarea></label>
       <label>Message with it <textarea id="invMsg" rows="7">${esc(`${hi(c)}Please find your invoice attached. The payment details are on it.${signOff}`)}</textarea></label>
       <div class="row"><button type="button" data-cu="sendInvoice">Send to ${esc(c.email)}</button><button type="button" class="plain" data-cu="previewInvoice">Preview PDF</button><button type="button" class="plain" data-cu="draftInvoice">Save as a draft</button></div>`,
     monthly: c => { const r = c.recurring; return `<p class="muted">The same invoice goes to ${esc(c.email)} on this day each month, on its own. Each month is sent once.</p>
@@ -1974,7 +1975,8 @@
     const ssl = k?.ssl_expires ? Math.round((Date.parse(k.ssl_expires) - Date.now()) / 864e5) : null;
     return `<p class="muted">${!k ? 'Website not checked yet.' : k.fails >= 2 ? `<span class="bad">Website down since ${esc(dm(k.down_since))}: ${esc(k.error)}</span>` : k.ok ? `Website up, answered in ${(k.ms / 1000).toFixed(1)}s.` : `Last check failed (${esc(k.error)}), checking again within the hour.`}
       ${ssl === null ? '' : ` SSL certificate runs out ${ssl <= 14 ? `<span class="bad">in ${ssl} days</span>` : `on ${esc(dm(k.ssl_expires))}`}.`} <button type="button" class="plain small" data-cu="checkSite">Check now</button></p>`; };
-  async function openCustomer(id, panel) {
+  async function openCustomer(id, panel, inv) {
+    editInv = panel === 'invoice' ? inv ?? null : null;
     cust = id ? await (await api(`/customers/${id}`)).json() : { business_name: '', first_name: '', last_name: '', email: '', phone: '', address: '', website_url: '', services: [], ga4_property: '', gsc_site: '', activity: [], invoices: [] };
     const c = cust, others = c.services.filter(x => !custServices.includes(x));
     const act = (k, label, needsEmail) => `<button type="button" class="${panel === k ? '' : 'plain '}small" data-panel="${k}" ${needsEmail && !c.email ? 'disabled title="Add their email first"' : ''}>${label}</button>`;
@@ -2002,7 +2004,7 @@
           ${i.reminded_at ? `<span class="muted">reminded ${esc(dm(i.reminded_at))}</span> ` : ''}<span class="badge ${i.overdue ? 'bad' : { paid: 'sent', sent: 'pending', draft: 'draft' }[i.status] ?? ''}">${i.overdue ? 'Overdue' : { paid: 'Paid', sent: 'Unpaid', draft: 'Draft', sending: 'Check your sent mail' }[i.status]}</span>${i.error ? ` <span class="bad">${esc(i.error)}</span>` : ''}</span>
         <span class="row"><button type="button" class="plain small" data-inv-pdf="${i.id}" data-label="${esc(i.label)}">PDF</button>
           ${i.overdue ? `<button type="button" class="small" data-inv-remind="${i.id}">Send a reminder</button>` : ''}${i.status === 'sent' ? `<button type="button" class="plain small" data-inv-paid="1" data-inv="${i.id}">Mark paid</button>` : ''}${i.status === 'paid' ? `<button type="button" class="plain small" data-inv-paid="0" data-inv="${i.id}">Mark unpaid</button>` : ''}
-          ${i.status === 'draft' ? `<button type="button" class="small" data-inv-send="${i.id}">Send</button><button type="button" class="plain small" data-inv-del="${i.id}">Delete</button>` : ''}</span></div>`).join('')}</div>` : ''}
+          ${i.status === 'draft' ? `<button type="button" class="small" data-inv-send="${i.id}">Send</button><button type="button" class="plain small" data-inv-edit="${i.id}">Change</button><button type="button" class="plain small" data-inv-del="${i.id}">Delete</button>` : ''}</span></div>`).join('')}</div>` : ''}
       ${c.id ? `<h3>Renewals</h3>${c.renewals.length ? `<div class="list">${c.renewals.map(r => { const days = Math.round((Date.parse(r.renews_on) - Date.now()) / 864e5);
           return `<div${r.cancelled_at ? ' style="opacity:.6"' : ''}><span><b>${esc(r.what)}</b> <span class="muted">${esc(new Date(r.renews_on).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }))}${r.cost ? `, ${money(r.cost)}` : ''}</span>
             ${r.cancelled_at ? '<span class="badge">Cancelled</span>' : days <= 30 ? `<span class="badge ${days < 0 ? 'bad' : 'pending'}">${days < 0 ? 'Overdue' : `In ${days} day${days === 1 ? '' : 's'}`}</span>` : ''}</span>
@@ -2053,7 +2055,7 @@
     if (e.target === $('custDialog') || e.target.dataset.close !== undefined) return $('custDialog').close();
     const t = e.target, act = t.dataset.cu, c = cust, out = m => { const o = $('cuPanelOut') ?? $('cuOut'); o.innerHTML = m; };
     if (t.dataset.panel) return openCustomer(c.id, $('cuPanel') && t.classList.contains('plain') === false ? undefined : t.dataset.panel);
-    if (!act && !t.dataset.invPdf && !t.dataset.inv && !t.dataset.invSend && !t.dataset.invDel && !t.dataset.invRemind && !t.dataset.renDone && !t.dataset.renDel) return;
+    if (!act && !t.dataset.invPdf && !t.dataset.inv && !t.dataset.invSend && !t.dataset.invEdit && !t.dataset.invDel && !t.dataset.invRemind && !t.dataset.renDone && !t.dataset.renDel) return;
     const was = t.textContent;
     t.disabled = true;
     try {
@@ -2090,13 +2092,14 @@
       if (act === 'draftInvoice' || act === 'sendInvoice') {
         const body = invForm();
         if (act === 'sendInvoice' && !confirm(`Send this invoice to ${c.email}?`)) return;
-        const msg = $('invMsg').value, inv = await (await api(`/customers/${c.id}/invoices`, { method: 'POST', body: JSON.stringify(body) })).json();
+        const msg = $('invMsg').value, inv = await (await api(editInv ? `/invoices/${editInv.id}` : `/customers/${c.id}/invoices`, { method: editInv ? 'PUT' : 'POST', body: JSON.stringify(body) })).json();
         if (act === 'sendInvoice') { out('Sending...'); await api(`/invoices/${inv.id}/send`, { method: 'POST', body: JSON.stringify({ message: msg }) }).catch(async err => { await openCustomer(c.id); throw err; }); }
         await openCustomer(c.id); loadCustomers(); $('cuOut').innerHTML = `<span class="good">${act === 'sendInvoice' ? 'Invoice sent' : 'Draft saved'}</span>`; return;
       }
       if (t.dataset.invPdf) return await openPdf(`/invoices/${t.dataset.invPdf}/pdf`);
       if (t.dataset.inv) { await api(`/invoices/${t.dataset.inv}/paid`, { method: 'POST', body: JSON.stringify({ paid: t.dataset.invPaid === '1' }) }); loadCustomers(); return openCustomer(c.id); }
       if (t.dataset.invDel) { if (!confirm('Delete this draft invoice?')) return; await api(`/invoices/${t.dataset.invDel}`, { method: 'DELETE' }); return openCustomer(c.id); }
+      if (t.dataset.invEdit) return openCustomer(c.id, 'invoice', c.invoices.find(i => i.id === Number(t.dataset.invEdit)));
       if (t.dataset.invSend) {
         if (!confirm(`Send this invoice to ${c.email}?`)) return;
         await api(`/invoices/${t.dataset.invSend}/send`, { method: 'POST', body: JSON.stringify({ message: `${hi(c)}Please find your invoice attached. The payment details are on it.${signOff}` }) })
