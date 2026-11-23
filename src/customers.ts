@@ -10,7 +10,16 @@ import { fetchPage } from './page.ts';
 import { accessToken, query as gscQuery, serviceEmail } from './gsc.ts';
 import { pageSpeed } from './analyse.ts';
 
-export const SERVICES = ['Web design', 'Custom web development', 'Website care plan', 'Hosting', 'SEO', 'Conversion rate optimisation', 'AI services', 'Google Ads', 'Social media', 'Email marketing'];
+// What David sells, with an optional price. Edited on the Invoices page; the names are a customer's service choices and an invoice line's dropdown.
+export type Product = { name: string; price: number | null };
+const PRODUCTS: Product[] = ['Brochure website', 'Business website', 'Ecommerce website', 'Custom web development', 'Website care plan', 'Hosting', 'SEO',
+  'Conversion rate optimisation', 'AI services', 'Google Ads', 'Social media', 'Email marketing'].map(name => ({ name, price: null }));
+export const products = (): Product[] => JSON.parse((db.prepare(`SELECT value FROM settings WHERE key = 'products'`).get() as { value: string } | undefined)?.value ?? 'null') ?? PRODUCTS;
+export function saveProducts(list: Product[]) {
+  const seen = new Set<string>(), v = list.map(p => ({ name: p.name.trim(), price: p.price ?? null })).filter(p => p.name && !seen.has(p.name.toLowerCase()) && seen.add(p.name.toLowerCase()));
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('products', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(v));
+  return v;
+}
 const FIELDS = ['business_name', 'first_name', 'last_name', 'email', 'phone', 'address', 'website_url', 'ga4_property', 'gsc_site'] as const;
 export type CustomerInput = Partial<Record<typeof FIELDS[number], string>> & { services?: string[] };
 type Row = Record<typeof FIELDS[number], string> & { id: number; services: string; lead_id: number | null; recurring: string | null; site_check: string | null; created_at: string; updated_at: string };

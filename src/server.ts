@@ -360,7 +360,10 @@ export function buildApp() {
     note: str(2000), due_days: { type: 'integer', minimum: 0, maximum: 365 } } };
   const mailBody = (extra: object = {}) => ({ type: 'object', required: ['subject', 'body'], additionalProperties: false,
     properties: { subject: { type: 'string', minLength: 1, maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 20000 }, ...extra } });
-  app.get('/customers', async () => ({ customers: customers.list(), services: customers.SERVICES }));
+  app.get('/customers', async () => ({ customers: customers.list(), ...(p => ({ services: p.map(x => x.name), products: p }))(customers.products()) }));
+  app.get('/products', async () => customers.products());
+  app.put<{ Body: customers.Product[] }>('/products', { schema: { body: { type: 'array', maxItems: 100, items: { type: 'object', required: ['name'], additionalProperties: false,
+    properties: { name: str(120), price: { type: ['number', 'null'], minimum: 0 } } } } } }, async req => customers.saveProducts(req.body));
   app.post<{ Body: customers.CustomerInput }>('/customers', { schema: { body: { ...custBody, required: ['business_name'] } } }, async req => customers.create(req.body));
   app.get<{ Params: { id: number } }>('/customers/:id', { schema: { params: id } }, async req => customers.get(req.params.id));
   app.put<{ Params: { id: number }; Body: customers.CustomerInput }>('/customers/:id', { schema: { params: id, body: custBody } }, async req => customers.update(req.params.id, req.body));

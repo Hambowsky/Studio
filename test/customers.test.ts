@@ -247,3 +247,14 @@ test('PDFs stay small', async () => {
   const pdf = await call('GET', '/invoices/1/pdf');
   assert.ok(pdf.rawPayload.length < 30_000, `invoice PDF is ${pdf.rawPayload.length} bytes`);
 });
+
+test('products are the website packages by default and are edited as one list', async () => {
+  const names = (await call('GET', '/products')).json().map((p: any) => p.name);
+  assert.ok(names.includes('Business website') && !names.includes('Web design'));
+  const saved = (await call('PUT', '/products', [{ name: ' Brochure website ', price: 950 }, { name: 'brochure website', price: 1 }, { name: 'Hosting', price: null }, { name: '' }])).json();
+  assert.deepEqual(saved, [{ name: 'Brochure website', price: 950 }, { name: 'Hosting', price: null }], 'trimmed, blanks and repeats dropped');
+  const r = (await call('GET', '/customers')).json();
+  assert.deepEqual(r.services, ['Brochure website', 'Hosting']);
+  assert.equal(r.products[0].price, 950);
+  assert.equal((await call('PUT', '/products', [{ name: 'x', price: -1 }])).statusCode, 400);
+});
