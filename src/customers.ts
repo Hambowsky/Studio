@@ -45,7 +45,7 @@ const view = (c: Row) => ({ ...c, services: JSON.parse(c.services) as string[], 
 export function list() {
   return (db.prepare(`SELECT c.*, COALESCE((SELECT SUM(total) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent'), 0) AS unpaid,
     EXISTS (SELECT 1 FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent' AND i.due_on < date('now')) AS overdue,
-    (SELECT json_object('what', what, 'renews_on', renews_on) FROM renewals r WHERE r.customer_id = c.id ORDER BY renews_on LIMIT 1) AS next_renewal
+    (SELECT json_object('what', what, 'renews_on', renews_on) FROM renewals r WHERE r.customer_id = c.id AND r.cancelled_at IS NULL ORDER BY renews_on LIMIT 1) AS next_renewal
     FROM customers c ORDER BY c.business_name COLLATE NOCASE`).all() as (Row & { unpaid: number; overdue: number; next_renewal: string | null })[])
     .map(c => ({ ...view(c), unpaid: c.unpaid, overdue: !!c.overdue, next_renewal: c.next_renewal ? JSON.parse(c.next_renewal) as { what: string; renews_on: string } : null }));
 }
@@ -410,6 +410,13 @@ export function addRenewal(id: number, r: { what: string; renews_on: string; cos
 }
 const getRenewal = (id: number) => (db.prepare('SELECT * FROM renewals WHERE id = ?').get(id) as { id: number; customer_id: number; what: string; renews_on: string } | undefined) ?? fail(404, `There is no renewal ${id}`);
 export function deleteRenewal(id: number) { const r = getRenewal(id); db.prepare('DELETE FROM renewals WHERE id = ?').run(id); return get(r.customer_id); }
+// Cancelled: the customer stopped it, so it is no longer due. Ticking it off again brings it back.
+export function cancelRenewal(id: number, cancelled: boolean) {
+  const r = getRenewal(id);
+  db.prepare('UPDATE renewals SET cancelled_at = ? WHERE id = ?').run(cancelled ? new Date().toISOString() : null, id);
+  log(r.customer_id, 'note', `${cancelled ? 'Cancelled' : 'Restarted'} ${r.what}`);
+  return get(r.customer_id);
+}
 // Renewed: the date moves on a year.
 export function renewed(id: number) {
   const r = getRenewal(id), next = new Date(r.renews_on);
@@ -470,7 +477,7 @@ export function needs() {
   return {
     invoices_overdue: n(`SELECT COUNT(*) AS n FROM invoices WHERE status = 'sent' AND due_on < date('now')`),
     invoices_to_check: n(`SELECT COUNT(*) AS n FROM invoices WHERE (status = 'draft' AND error IS NOT NULL) OR status = 'sending'`),
-    renewals_due: n(`SELECT COUNT(*) AS n FROM renewals WHERE renews_on <= date('now', '+30 days')`)
+    renewals_due: n(`SELECT COUNT(*) AS n FROM renewals WHERE cancelled_at IS NULL AND renews_on <= date('now', '+30 days')`)
       + n(`SELECT COUNT(*) AS n FROM customers WHERE json_extract(site_check, '$.ssl_expires') <= date('now', '+14 days')`),
     sites_down: n(`SELECT COUNT(*) AS n FROM customers WHERE json_extract(site_check, '$.fails') >= 2`),
   };

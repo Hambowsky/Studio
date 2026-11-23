@@ -364,6 +364,8 @@ const migrations = [
    )`,
 
   `ALTER TABLE campaigns ADD COLUMN service TEXT NOT NULL DEFAULT 'web_design'`, // what the campaign sells: a key of SERVICES in services.ts
+
+  `ALTER TABLE renewals ADD COLUMN cancelled_at TEXT`, // the customer cancelled it: no longer due, kept for the record
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

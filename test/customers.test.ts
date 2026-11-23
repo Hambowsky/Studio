@@ -258,3 +258,17 @@ test('products are the website packages by default and are edited as one list', 
   assert.equal(r.products[0].price, 950);
   assert.equal((await call('PUT', '/products', [{ name: 'x', price: -1 }])).statusCode, 400);
 });
+
+test('a cancelled renewal is no longer due', async () => {
+  const soon = new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10);
+  const c = (await call('POST', `/customers/${id}/renewals`, { what: 'Hosting', renews_on: soon })).json();
+  const r = c.renewals.find((x: any) => x.what === 'Hosting');
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 1);
+  const after = (await call('POST', `/renewals/${r.id}/cancelled`, { cancelled: true })).json();
+  assert.ok(after.renewals.find((x: any) => x.id === r.id).cancelled_at);
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 0);
+  assert.notEqual((await call('GET', '/customers')).json().customers.find((x: any) => x.id === id).next_renewal?.what, 'Hosting');
+  await call('POST', `/renewals/${r.id}/cancelled`, { cancelled: false });
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 1);
+  await call('DELETE', `/renewals/${r.id}`);
+});
