@@ -370,6 +370,11 @@ const migrations = [
   `ALTER TABLE invoices ADD COLUMN renewal_id INTEGER;  -- a draft made 14 days before a renewal, for David to approve
    ALTER TABLE invoices ADD COLUMN renewal_on TEXT;     -- the renewal date it is for, so each renewal is drafted once
    CREATE UNIQUE INDEX invoices_renewal ON invoices (renewal_id, renewal_on)`,
+
+  `ALTER TABLE customers ADD COLUMN hosting_external TEXT NOT NULL DEFAULT '';  -- '1' when their website is hosted elsewhere, so they pay us nothing for it
+   ALTER TABLE customers ADD COLUMN hosting_supplier TEXT NOT NULL DEFAULT '';
+   ALTER TABLE customers ADD COLUMN domain_external TEXT NOT NULL DEFAULT '';   -- '1' when their domain is registered elsewhere
+   ALTER TABLE customers ADD COLUMN domain_supplier TEXT NOT NULL DEFAULT ''`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

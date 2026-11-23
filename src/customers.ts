@@ -20,7 +20,8 @@ export function saveProducts(list: Product[]) {
   db.prepare(`INSERT INTO settings (key, value) VALUES ('products', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(v));
   return v;
 }
-const FIELDS = ['business_name', 'first_name', 'last_name', 'email', 'phone', 'address', 'website_url', 'ga4_property', 'gsc_site'] as const;
+const FIELDS = ['business_name', 'first_name', 'last_name', 'email', 'phone', 'address', 'website_url', 'ga4_property', 'gsc_site',
+  'hosting_external', 'hosting_supplier', 'domain_external', 'domain_supplier'] as const;
 export type CustomerInput = Partial<Record<typeof FIELDS[number], string>> & { services?: string[] };
 type Row = Record<typeof FIELDS[number], string> & { id: number; services: string; lead_id: number | null; recurring: string | null; site_check: string | null; created_at: string; updated_at: string };
 type Item = { description: string; qty: number; price: number };

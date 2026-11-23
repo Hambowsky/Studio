@@ -293,3 +293,11 @@ test('a renewal gets a draft invoice 14 days before, once, for David to change a
   assert.equal((await call('GET', '/dashboard/sales')).json().needs.invoices_to_send, 0, 'cancelling drops its unsent draft');
   for (const x of (await call('GET', `/customers/${id}`)).json().renewals) await call('DELETE', `/renewals/${x.id}`);
 });
+
+test('a customer can have hosting or a domain elsewhere, with the supplier', async () => {
+  const c = (await call('PUT', `/customers/${id}`, { hosting_external: '1', hosting_supplier: ' GoDaddy ', domain_external: '' })).json();
+  assert.equal(c.hosting_external, '1');
+  assert.equal(c.hosting_supplier, 'GoDaddy');
+  assert.equal((await call('GET', '/customers')).json().customers.find((x: any) => x.id === id).hosting_supplier, 'GoDaddy');
+  assert.equal((await call('PUT', `/customers/${id}`, { hosting_external: 'yes' })).statusCode, 400);
+});
