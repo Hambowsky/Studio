@@ -353,7 +353,7 @@ export function buildApp() {
   const pdfReply = (reply: FastifyReply, file: string, data: Buffer) => reply.type('application/pdf').header('content-disposition', `attachment; filename="${file}"`).send(data);
   const custBody = { type: 'object', additionalProperties: false, properties: {
     business_name: { type: 'string', maxLength: 200 }, first_name: str(100), last_name: str(100), email: str(200), phone: str(40), address: str(500),
-    website_url: str(500), ga4_property: { type: 'string', pattern: '^[0-9]{0,20}$' }, gsc_site: str(300), hosting_external: { enum: ['', '1'] }, hosting_supplier: str(120), domain_external: { enum: ['', '1'] }, domain_supplier: str(120), services: { type: 'array', maxItems: 30, items: str(100) } } };
+    website_url: str(500), ga4_property: { type: 'string', pattern: '^[0-9]{0,20}$' }, gsc_site: str(300), hosting_external: { enum: ['', '1'] }, hosting_supplier: str(120), domain_external: { enum: ['', '1'] }, domain_supplier: str(120), wordpress: { enum: ['', '1'] }, wp_login_url: str(500), wp_username: str(200), wp_password: str(500), services: { type: 'array', maxItems: 30, items: str(100) } } };
   const invBody = { type: 'object', required: ['items'], additionalProperties: false, properties: {
     items: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', required: ['description', 'qty', 'price'], additionalProperties: false,
       properties: { description: str(300), qty: { type: 'number', minimum: 0, maximum: 100000 }, price: { type: 'number', minimum: -1000000, maximum: 1000000 } } } },
