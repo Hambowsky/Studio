@@ -2023,9 +2023,24 @@
       <label>Copy to <input id="mcCc" value="${esc(cc)}"></label>
       <label>Subject <input id="mcSubject" value="${esc(subject)}" maxlength="300"></label>
       <label>Message <textarea id="mcText" rows="14">${esc(`\n\n${signOff.trimStart()}${quoted}`)}</textarea></label>
-      ${mode === 'forward' && m.attachments.length ? '<p class="muted">Attachments are not forwarded. Download them above and send them from your mail program if needed.</p>' : ''}
+      <div class="row"><button type="button" class="plain small" data-ml-act="attach">📎 Attach files</button><input type="file" id="mcFiles" multiple hidden></div>
+      <div class="chips" id="mcAttached"></div>
       <div class="row"><button type="button" class="small" data-ml-act="send">Send</button><button type="button" class="plain small" data-ml-act="cancel">Cancel</button><span id="mcOut" class="muted"></span></div>`;
+    ml.files = []; ml.fwd = mode === 'forward' ? m.attachments.map(a => ({ ...a })) : [];
+    $('mcFiles').addEventListener('change', async e => {
+      for (const f of e.target.files) ml.files.push({ name: f.name, type: f.type, size: f.size,
+        data: await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] ?? ''); r.onerror = no; r.readAsDataURL(f); }) });
+      e.target.value = ''; drawAttached();
+    });
+    drawAttached();
     $('mcText').focus(); $('mcText').setSelectionRange(0, 0);
+  }
+  const MAX_ATTACH = 20 * 1024 * 1024, kb = n => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+  const attachedSize = () => [...ml.files, ...ml.fwd].reduce((n, f) => n + (f.size || 0), 0);
+  function drawAttached() {
+    const chip = (f, i, kind) => `<span class="chip">📎 ${esc(f.name)} <span class="muted">${kb(f.size || 0)}</span><button type="button" class="plain small" style="padding:0 4px" data-ml-act="unattach" data-kind="${kind}" data-i="${i}" aria-label="Remove ${esc(f.name)}">×</button></span>`;
+    $('mcAttached').innerHTML = ml.fwd.map((f, i) => chip(f, i, 'fwd')).join('') + ml.files.map((f, i) => chip(f, i, 'file')).join('')
+      + (attachedSize() > MAX_ATTACH ? '<span class="bad">These come to more than 20 MB, which most mail servers refuse.</span>' : '');
   }
   $('mlFolder').addEventListener('change', () => { ml.folder = $('mlFolder').value; ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Pick a message to read it.</p>'; loadMail(); });
   $('mlList').addEventListener('change', e => { const t = e.target.closest('[data-pick]'); if (!t) return; t.checked ? ml.picked.add(t.dataset.pick) : ml.picked.delete(t.dataset.pick); drawPicked(); });
@@ -2048,14 +2063,19 @@
         a.href = URL.createObjectURL(blob); a.download = t.dataset.mlName; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10_000); return; }
       if (act === 'back' || act === 'cancel') { $('mlPane').classList.remove('reading'); return m && act === 'cancel' ? drawOpen() : null; }
       if (act === 'reply' || act === 'all' || act === 'forward') return compose(act);
+      if (act === 'attach') return $('mcFiles').click();
+      if (act === 'unattach') { (t.dataset.kind === 'fwd' ? ml.fwd : ml.files).splice(Number(t.dataset.i), 1); return drawAttached(); }
       if (act === 'images') { ml.images = true; return drawOpen(); }
       if (act === 'unread') { t.disabled = true; await api(`/mail/${m.box_id}/${m.uid}/seen?${fq()}`, { method: 'POST', body: JSON.stringify({ seen: false }) }); ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Marked unread.</p>'; return loadMail(); }
       if (act === 'delete') { t.disabled = true; if (!await deleteMail([m])) t.disabled = false; return; }
       if (act === 'send') {
         const to = $('mcTo').value.trim(); if (!to) { $('mcOut').innerHTML = '<span class="bad">Say who it is to</span>'; return; }
-        if (!confirm(`Send this email to ${to}?`)) return;
+        if (attachedSize() > MAX_ATTACH) { $('mcOut').innerHTML = '<span class="bad">Remove some attachments first</span>'; return; }
+        const n = ml.files.length + ml.fwd.length;
+        if (!confirm(`Send this email to ${to}${n ? ` with ${n} attachment${n === 1 ? '' : 's'}` : ''}?`)) return;
         t.disabled = true; $('mcOut').textContent = 'Sending...';
-        const r = await (await api(`/mailboxes/${$('mcFrom').value}/send`, { method: 'POST', body: JSON.stringify({ to, cc: $('mcCc').value.trim(), subject: $('mcSubject').value, text: $('mcText').value, ...ml.reply }) })).json();
+        const r = await (await api(`/mailboxes/${$('mcFrom').value}/send`, { method: 'POST', body: JSON.stringify({ to, cc: $('mcCc').value.trim(), subject: $('mcSubject').value, text: $('mcText').value, ...ml.reply,
+          attachments: ml.files.map(({ name, type, data }) => ({ name, type, data })), ...(ml.fwd.length ? { forward: { box: ml.open.box_id, uid: ml.open.uid, folder: ml.folder, parts: ml.fwd.map(a => a.part) } } : {}) }) })).json();
         $('mlRead').innerHTML = `<button type="button" class="plain small mail-back" data-ml-act="back">Back</button><p class="good">Sent${r.filed ? '' : ". It could not be saved in the Sent folder, so it won't show in webmail"}.</p>`;
       }
     } catch (err) { t.disabled = false; ($('mcOut') ?? $('mlRead')).insertAdjacentHTML('beforeend', `<span class="bad"> ${esc(err.message)}</span>`); }

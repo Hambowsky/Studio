@@ -339,3 +339,10 @@ test('hidden Needs you items are kept with their counts', async () => {
   await call('PUT', '/dashboard/hidden', { '#invoices  renewal invoice ready to check and send': 2, '#emails  x': 1 });
   assert.equal((await call('GET', '/dashboard/hidden')).json()['#invoices  renewal invoice ready to check and send'].at, h.at, 'hiding another keeps the first time');
 });
+
+test('sending mail checks its attachments', async () => {
+  const base = { to: 'a@example.com', subject: 's', text: 't' };
+  assert.equal((await call('POST', '/mailboxes/99/send', { ...base, attachments: [{ data: 'eA==' }] })).statusCode, 400, 'a file needs a name');
+  assert.equal((await call('POST', '/mailboxes/99/send', { ...base, forward: { box: 1, uid: 1, parts: ['../x'] } })).statusCode, 400, 'parts are numbers');
+  assert.equal((await call('POST', '/mailboxes/99/send', { ...base, attachments: [{ name: 'a.txt', data: 'eA==' }] })).statusCode, 404);
+});
