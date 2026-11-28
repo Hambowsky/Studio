@@ -20,6 +20,7 @@ import { reportPdf } from './report.ts';
 import * as concept from './concept.ts';
 import * as customers from './customers.ts';
 import * as mail from './mail.ts';
+import * as notify from './notify.ts';
 import { SERVICES, SERVICE_KEYS } from './services.ts';
 import * as dashboard from './dashboard.ts';
 import * as gsc from './gsc.ts';
@@ -81,6 +82,8 @@ export function buildApp() {
     return f ? reply.type(f.type).send(fs.createReadStream(f.file)) : reply.code(404).send({ error: 'Not found' });
   };
   app.get('/check.js', sendPublic);
+  app.get('/sw.js', sendPublic);
+  app.get('/manifest.webmanifest', sendPublic);
   app.get('/fonts/:file', sendPublic);
   app.get('/assets/:file', sendPublic);
 
@@ -619,6 +622,14 @@ export function buildApp() {
   type Hidden = Record<string, { n: number; at: number }>;
   const hidden = (): Hidden => Object.fromEntries(Object.entries(JSON.parse((db.prepare(`SELECT value FROM settings WHERE key = 'needs-hidden'`).get() as { value: string } | undefined)?.value ?? '{}'))
     .map(([k, v]) => [k, typeof v === 'number' ? { n: v, at: Date.now() } : v as { n: number; at: number }])); // ponytail: number form is from before hide times
+  // Phone alerts.
+  app.get('/alerts', async () => ({ public_key: notify.publicKey(), prefs: notify.prefs(), devices: notify.devices() }));
+  app.post<{ Body: { subscription: { endpoint: string; keys: { p256dh: string; auth: string } }; label?: string } }>('/alerts/subscribe', { schema: { body: { type: 'object', required: ['subscription'], properties: {
+    label: str(200), subscription: { type: 'object', required: ['endpoint', 'keys'], properties: { endpoint: str(2000), keys: { type: 'object', required: ['p256dh', 'auth'], properties: { p256dh: str(200), auth: str(100) } } } } } } } },
+    async req => notify.subscribe(req.body.subscription, req.body.label));
+  app.post<{ Body: { endpoint: string } }>('/alerts/unsubscribe', { schema: { body: { type: 'object', required: ['endpoint'], properties: { endpoint: str(2000) } } } }, async req => notify.unsubscribe(req.body.endpoint));
+  app.put<{ Body: Partial<notify.Prefs> }>('/alerts/prefs', { schema: { body: { type: 'object', additionalProperties: false, properties: { needs: { type: 'boolean' }, mail: { type: 'boolean' } } } } }, async req => notify.savePrefs(req.body));
+  app.post('/alerts/test', async () => notify.push('Studio alerts are on', 'You will get an alert here when something needs you or new mail arrives.', '/'));
   app.get('/dashboard/hidden', async () => hidden());
   app.put<{ Body: Record<string, number> }>('/dashboard/hidden', { schema: { body: { type: 'object', maxProperties: 200, additionalProperties: { type: 'integer', minimum: 0 } } } }, async req => {
     const was = hidden(), now: Hidden = Object.fromEntries(Object.entries(req.body).map(([k, n]) => [k, was[k]?.n === n ? was[k] : { n, at: Date.now() }]));
@@ -647,6 +658,7 @@ export async function start() {
   outreach.startOutreach();
   startInbox();
   customers.startCustomers();
+  notify.startAlerts();
   signals.startSignals();
   links.startLinks();
   const app = buildApp();

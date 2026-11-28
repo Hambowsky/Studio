@@ -393,6 +393,12 @@ const migrations = [
      smtp_port INTEGER NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    )`,
+  `CREATE TABLE push_subs (            -- phones and browsers that get alerts (Web Push)
+     endpoint TEXT PRIMARY KEY,
+     keys TEXT NOT NULL,               -- JSON p256dh and auth from the browser
+     label TEXT NOT NULL DEFAULT '',   -- which device, from its user agent
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   )`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
