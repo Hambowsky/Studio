@@ -83,6 +83,10 @@
   .todo { display: grid; gap: 8px; }
   .todo a { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--red-soft); color: var(--ink); text-decoration: none; font-weight: 500; }
   .todo a b { color: var(--red); font-size: 18px; min-width: 28px; }
+  .todo-item { position: relative; display: grid; }
+  .todo-item a { padding-right: 40px; }
+  button.todo-hide { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; padding: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 18px; line-height: 1; }
+  button.todo-hide:hover { background: rgba(0, 0, 0, .06); color: var(--ink); }
   .bars { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding-top: 18px; }
   .bars div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; font-size: 11px; color: var(--muted); gap: 4px; min-width: 0; }
   .bars i { display: block; width: 100%; background: var(--red); border-radius: 4px 4px 0 0; min-height: 2px; }
@@ -1275,10 +1279,26 @@
 
   let leadTimer;
   // Dashboards. "Needs you" links to the page where each thing is done.
+  // An item David hides stays hidden until its count changes, so anything new still shows.
+  let needsHidden = {}, needsKeys = new Set();
   const todo = items => {
-    const shown = items.filter(([n]) => n).map(([n, text, href, attrs = '']) => [n, typeof text === 'string' ? text : text[n === 1 ? 0 : 1], href, attrs]);
-    return `<div class="card"><h2>Needs you</h2>${shown.length ? `<div class="todo">${shown.map(([n, text, href, attrs]) => `<a href="${href}" ${attrs}><b>${n}</b>${esc(text)}</a>`).join('')}</div>` : '<p class="muted">Nothing is waiting on you.</p>'}</div>`;
+    const all = items.filter(([n]) => n).map(([n, text, href, attrs = '']) => [n, typeof text === 'string' ? text : text[n === 1 ? 0 : 1], href, attrs, `${href} ${attrs} ${typeof text === 'string' ? text : text[0]}`]);
+    needsKeys = new Set(all.map(i => i[4]));
+    const shown = all.filter(i => needsHidden[i[4]] !== i[0]), hidden = all.length - shown.length;
+    return `<div class="card" id="needsCard"><div class="card-head"><h2>Needs you</h2>${hidden ? `<button type="button" class="plain small" data-unhide>Show ${hidden} hidden</button>` : ''}</div>
+      ${shown.length ? `<div class="todo">${shown.map(([n, text, href, attrs, key]) => `<div class="todo-item"><a href="${href}" ${attrs}><b>${n}</b>${esc(text)}</a><button type="button" class="todo-hide" data-hide="${esc(key)}" data-n="${n}" title="Hide" aria-label="Hide">×</button></div>`).join('')}</div>`
+        : `<p class="muted">${hidden ? 'Nothing else is waiting on you.' : 'Nothing is waiting on you.'}</p>`}</div>`;
   };
+  async function saveHidden(next) {
+    next = Object.fromEntries(Object.entries(next).filter(([k]) => needsKeys.has(k))); // forget items that have gone
+    needsHidden = await (await api('/dashboard/hidden', { method: 'PUT', body: JSON.stringify(next) })).json();
+    loadHome();
+  }
+  document.addEventListener('click', e => {
+    const h = e.target.closest('#needsCard [data-hide]'), u = e.target.closest('#needsCard [data-unhide]');
+    if (h) { e.preventDefault(); saveHidden({ ...needsHidden, [h.dataset.hide]: Number(h.dataset.n) }).catch(err => alert(err.message)); }
+    if (u) saveHidden({}).catch(err => alert(err.message));
+  });
   const tile = (big, label, sub = '', href = '') => `<${href ? `a href="${href}"` : 'div'} class="card tile"><span class="muted">${esc(label)}</span><span class="big">${big}</span>${sub ? `<span class="muted">${sub}</span>` : ''}</${href ? 'a' : 'div'}>`;
   // Every bar is labelled with the day over the month, so labels never wrap differently and the charts line up on phones.
   const bars = rows => {
@@ -1321,7 +1341,8 @@
   async function loadHome() {
     const box = $('homeBox'), hour = new Date().getHours();
     try {
-      const [m, s] = await Promise.all(['marketing', 'sales'].map(async a => (await api(`/dashboard/${a}`)).json()));
+      const [m, s, h] = await Promise.all(['marketing', 'sales', 'hidden'].map(async a => (await api(`/dashboard/${a}`)).json()));
+      needsHidden = h;
       const st = s.status, last = m.emails[0], open = last?.stats?.delivered ? pct(last.stats.opened, last.stats.delivered) : null;
       const funnel = [['New', st.new ?? 0, 's1'], ['Contacted', st.contacted ?? 0, 's2'], ['Replied', st.replied ?? 0, 's3'], ['Won', st.converted ?? 0, 's4']];
       const fmax = Math.max(1, ...funnel.map(f => f[1]));

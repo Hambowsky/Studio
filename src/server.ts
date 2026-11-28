@@ -611,6 +611,13 @@ export function buildApp() {
 
   app.get('/dashboard/marketing', async () => dashboard.marketing());
   app.get('/dashboard/sales', async () => dashboard.sales());
+  // Needs you items David has hidden, each with the count it had then, so it comes back when something new arrives.
+  const hiddenRow = () => db.prepare(`SELECT value FROM settings WHERE key = 'needs-hidden'`).get() as { value: string } | undefined;
+  app.get('/dashboard/hidden', async () => JSON.parse(hiddenRow()?.value ?? '{}'));
+  app.put<{ Body: Record<string, number> }>('/dashboard/hidden', { schema: { body: { type: 'object', maxProperties: 200, additionalProperties: { type: 'integer', minimum: 0 } } } }, async req => {
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('needs-hidden', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(req.body));
+    return req.body;
+  });
   app.get('/search-console', async () => gsc.week());
   app.get('/usage', async () => ({
     month_spend_gbp: monthSpendGbp(),

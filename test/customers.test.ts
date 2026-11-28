@@ -328,3 +328,10 @@ test('deleting mail checks what it is given', async () => {
   assert.equal((await call('POST', '/mail/delete', { messages: [{ box: 99, uid: 1 }] })).statusCode, 404, 'a known inbox');
   assert.equal((await call('GET', '/mail?folder=spam')).json().messages.length, 0);
 });
+
+test('hidden Needs you items are kept with their counts', async () => {
+  assert.deepEqual((await call('GET', '/dashboard/hidden')).json(), {});
+  assert.equal((await call('PUT', '/dashboard/hidden', { '#invoices  renewal invoice ready to check and send': 'x' })).statusCode, 400);
+  await call('PUT', '/dashboard/hidden', { '#invoices  renewal invoice ready to check and send': 2 });
+  assert.deepEqual((await call('GET', '/dashboard/hidden')).json(), { '#invoices  renewal invoice ready to check and send': 2 });
+});
