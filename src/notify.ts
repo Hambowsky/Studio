@@ -39,7 +39,7 @@ export async function push(title: string, body: string, url = '/') {
   await Promise.all(subs.map(async s => {
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: JSON.parse(s.keys) }, JSON.stringify({ title, body, url }),
-        { vapidDetails: { subject: 'mailto:alerts@redcherryit.com', publicKey: v.publicKey, privateKey: v.privateKey }, TTL: 6 * 3600 });
+        { vapidDetails: { subject: 'mailto:alerts@redcherryit.com', publicKey: v.publicKey, privateKey: v.privateKey }, TTL: 6 * 3600, urgency: 'high' }); // Android holds back normal priority alerts while the phone is idle
       sent++;
     } catch (err) {
       const e = err as { statusCode?: number; body?: string; message: string };
