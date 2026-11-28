@@ -220,6 +220,19 @@
   #custDialog { width: min(780px, 94vw); }
   .cu-panel { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--field); }
   .inv-line { display: grid; grid-template-columns: 170px 1fr 70px 100px 32px; gap: 8px; align-items: center; }
+  .mail { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; gap: 16px; align-items: start; }
+  .mail-list { display: grid; gap: 2px; max-height: 72vh; overflow: auto; }
+  button.mail-item { display: grid; gap: 2px; text-align: left; background: none; color: var(--body); font-weight: 400; padding: 10px 12px; border-radius: 10px; }
+  button.mail-item:hover, button.mail-item.on { background: var(--field); }
+  .mail-item .who { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .mail-item .who span:last-child { color: var(--muted); white-space: nowrap; }
+  .mail-item .subj { color: var(--ink); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mail-item.unread .subj, .mail-item.unread .who b { font-weight: 700; color: var(--ink); }
+  .mail-read { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .mail-read iframe { width: 100%; height: 62vh; border: 1px solid var(--line, #eee); border-radius: 10px; background: #fff; }
+  .mail-text { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; }
+  .mail-back { display: none; }
+  @media (max-width: 820px) { .mail { grid-template-columns: 1fr; } .mail.reading .mail-list { display: none; } .mail:not(.reading) .mail-read { display: none; } .mail-back { display: inline-block; } }
   .wp-mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #21759b; color: #fff; font: 700 11px/1 Georgia, serif; vertical-align: 2px; }
   .prod-line { display: grid; grid-template-columns: 1fr 120px 32px; gap: 8px; align-items: center; }
   @media (max-width: 820px) { .inv-line { grid-template-columns: 1fr 1fr 32px; } .inv-line [data-i=description], .inv-line [data-i=product] { grid-column: 1 / -1; } }
@@ -283,6 +296,7 @@
 <aside class="side">
   <nav aria-label="Pages" id="sideNav">
     <a href="#home" data-view="home"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Overview</a>
+    <a href="#mail" data-view="mail"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>Mail <span class="badge" id="navMail" hidden></span></a>
     <p class="nav-group">Customers</p>
     <a href="#customers" data-view="customers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13h20"/></svg>Customers</a>
     <a href="#invoices" data-view="invoices"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h5"/></svg>Invoices</a>
@@ -581,6 +595,32 @@
     </table></div>
   </div>
 </section>
+<section class="view" data-view="mail" hidden>
+  <div class="card">
+    <div class="card-head"><h2>Mail</h2><div class="row"><select id="mlBox" style="width:auto" aria-label="Inbox"></select>
+      <button type="button" class="plain small" id="mlRefresh">Refresh</button><button type="button" class="small" id="mlWrite">Write</button></div></div>
+    <p id="mlNote" class="muted" hidden></p>
+    <div class="mail" id="mlPane">
+      <div><div class="mail-list" id="mlList"></div><button type="button" class="plain small" id="mlMore" hidden>Load older</button></div>
+      <div class="mail-read" id="mlRead"><p class="muted">Pick a message to read it.</p></div>
+    </div>
+  </div>
+  <details class="card" id="mlBoxes">
+    <summary><h2 style="display:inline">Inboxes</h2> <span class="muted">The mailboxes read here. Passwords are kept encrypted.</span></summary>
+    <div id="mlBoxRows" class="list"></div>
+    <h3 id="mbTitle">Add an inbox</h3>
+    <div class="cols two">
+      <label>Name <input id="mbName" maxlength="80" placeholder="Such as Sales"></label>
+      <label>Email address <input id="mbEmail" type="email" maxlength="200"></label>
+      <label>Password <input id="mbPass" type="password" autocomplete="new-password" maxlength="500"></label>
+    </div>
+    <details><summary class="muted">Server settings (Stackmail's are filled in)</summary><div class="cols two">
+      <label>Login (blank uses the email address) <input id="mbUser" maxlength="200"></label><span></span>
+      <label>Incoming (IMAP) server <input id="mbImap" value="imap.stackmail.com"></label><label>Port <input id="mbImapPort" type="number" value="993"></label>
+      <label>Outgoing (SMTP) server <input id="mbSmtp" value="smtp.stackmail.com"></label><label>Port <input id="mbSmtpPort" type="number" value="465"></label></div></details>
+    <div class="row"><button type="button" class="small" id="mbSave">Add inbox</button><button type="button" class="plain small" id="mbCancel" hidden>Cancel</button><span id="mbOut" class="muted"></span></div>
+  </details>
+</section>
 <section class="view" data-view="invoices" hidden>
   <div class="card">
     <div class="card-head"><h2>Invoices</h2><div class="row"><span class="muted" id="ivCount"></span>
@@ -800,6 +840,7 @@
     if (view === 'leads') loadLeads();
     if (view === 'customers') loadCustomers();
     if (view === 'invoices') loadInvoices();
+    if (view === 'mail') loadMail();
     if (view === 'guides') loadGuides();
     if (view === 'emails') loadEmails();
     if (view === 'signals') loadSignals();
@@ -1848,6 +1889,144 @@
         $('ldOut').innerHTML = '<span class="good">Saved</span>';
       }
     } catch (err) { alert(err.message); if (e.target.id === 'ldAnalyse') openLead(id); }
+  });
+
+  // Mail: David's inboxes, read live from the mail server. Opening a message marks it read there too.
+  const ml = { boxes: [], status: [], list: [], open: null, editing: null, images: false };
+  const boxName = id => ml.boxes.find(b => b.id === id)?.name ?? '';
+  const mailWhen = d => { const t = new Date(d); return t.toDateString() === new Date().toDateString() ? t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : dm(d); };
+  const person = p => p.name ? `${esc(p.name)} <span class="muted">&lt;${esc(p.address)}&gt;</span>` : esc(p.address);
+  const mlOut = html => { $('mlNote').hidden = !html; $('mlNote').innerHTML = html; };
+  async function loadMail(more) {
+    try {
+      ml.boxes = await (await api('/mailboxes')).json();
+      const pick = $('mlBox').value;
+      $('mlBox').innerHTML = (ml.boxes.length > 1 ? '<option value="">All inboxes</option>' : '') + ml.boxes.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
+      if (ml.boxes.some(b => String(b.id) === pick)) $('mlBox').value = pick;
+      drawBoxes();
+      $('mlPane').hidden = $('mlBox').hidden = !ml.boxes.length;
+      if (!ml.boxes.length) { $('mlBoxes').open = true; mlOut('Add an inbox below to read its mail here.'); $('navMail').hidden = true; return; }
+      if (!more) $('mlList').innerHTML = '<p class="muted">Getting your mail...</p>';
+      const box = $('mlBox').value, oldest = more ? Math.min(...ml.list.filter(m => String(m.box_id) === box).map(m => m.seq)) : 0;
+      const r = await (await api(`/mail?${new URLSearchParams({ ...(box ? { box } : {}), ...(oldest ? { before: oldest } : {}) })}`)).json();
+      ml.list = more ? [...ml.list, ...r.messages] : r.messages;
+      if (!more || !box) ml.status = r.boxes;
+      const bad = r.boxes.filter(b => b.error);
+      mlOut(bad.map(b => `<span class="bad">${esc(boxName(b.id))}: ${esc(b.error)}</span>`).join('<br>'));
+      const unseen = ml.status.reduce((n, b) => n + b.unseen, 0);
+      $('navMail').hidden = !unseen; $('navMail').textContent = unseen;
+      for (const o of $('mlBox').options) { const st = o.value ? ml.status.find(b => String(b.id) === o.value) : null, n = o.value ? st?.unseen : unseen;
+        o.textContent = `${o.value ? boxName(Number(o.value)) : 'All inboxes'}${n ? ` (${n})` : ''}`; }
+      const st = box && ml.status.find(b => String(b.id) === box);
+      $('mlMore').hidden = !(st && ml.list.length && Math.min(...ml.list.map(m => m.seq)) > 1);
+      drawMail();
+    } catch (e) { mlOut(`<span class="bad">${esc(e.message)}</span>`); }
+  }
+  function drawMail() {
+    const many = ml.boxes.length > 1 && !$('mlBox').value;
+    $('mlList').innerHTML = ml.list.map(m => `<button type="button" class="mail-item${m.seen ? '' : ' unread'}${ml.open && ml.open.box_id === m.box_id && ml.open.uid === m.uid ? ' on' : ''}" data-ml="${m.box_id}:${m.uid}">
+      <span class="who"><b>${esc(m.from.name || m.from.address)}</b><span>${m.attachments ? '📎 ' : ''}${esc(mailWhen(m.date))}</span></span>
+      <span class="subj">${esc(m.subject || '(no subject)')}</span>${many ? `<span class="muted" style="font-size:12px">${esc(boxName(m.box_id))}</span>` : ''}</button>`).join('')
+      || '<p class="muted">Nothing in this inbox.</p>';
+  }
+  // HTML mail shows in a locked frame: no scripts, and no remote images (which tell the sender it was opened) until asked.
+  const mailFrame = (html, images) => `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data: cid:${images ? ' https: http:' : ''}"><base target="_blank"><style>body{font-family:Archivo,Arial,sans-serif;font-size:14px;color:#1a1a1a;margin:12px;word-wrap:break-word}img{max-width:100%;height:auto}</style>${html}`;
+  async function openMail(box, uid) {
+    $('mlPane').classList.add('reading'); ml.images = false;
+    $('mlRead').innerHTML = '<p class="muted">Opening...</p>';
+    try {
+      const m = ml.open = await (await api(`/mail/${box}/${uid}`)).json();
+      const item = ml.list.find(x => x.box_id === box && x.uid === uid);
+      if (item && !item.seen) { item.seen = true; const st = ml.status.find(b => b.id === box); if (st) st.unseen = Math.max(0, st.unseen - 1);
+        const n = ml.status.reduce((t, b) => t + b.unseen, 0); $('navMail').hidden = !n; $('navMail').textContent = n; }
+      drawMail(); drawOpen();
+    } catch (e) { $('mlRead').innerHTML = `<button type="button" class="plain small mail-back" data-ml-act="back">Back</button><p class="bad">${esc(e.message)}</p>`; }
+  }
+  function drawOpen() {
+    const m = ml.open, remote = /<img[^>]+src=["']?https?:/i.test(m.html);
+    $('mlRead').innerHTML = `<button type="button" class="plain small mail-back" data-ml-act="back">Back</button>
+      <h3 style="margin:0">${esc(m.subject || '(no subject)')}</h3>
+      <div style="font-size:13px">From ${m.from.map(person).join(', ')}<br><span class="muted">To ${m.to.map(p => esc(p.address)).join(', ')}${m.cc.length ? `, copy to ${m.cc.map(p => esc(p.address)).join(', ')}` : ''}, ${esc(new Date(m.date).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }))}${ml.boxes.length > 1 ? `, in ${esc(boxName(m.box_id))}` : ''}</span></div>
+      <div class="row"><button type="button" class="small" data-ml-act="reply">Reply</button>${m.to.length + m.cc.length > 1 ? '<button type="button" class="plain small" data-ml-act="all">Reply all</button>' : ''}<button type="button" class="plain small" data-ml-act="forward">Forward</button>
+        <button type="button" class="plain small" data-ml-act="unread">Mark unread</button><button type="button" class="plain small" data-ml-act="delete">Delete</button>
+        ${m.html && remote && !ml.images ? '<button type="button" class="plain small" data-ml-act="images">Show images</button>' : ''}</div>
+      ${m.attachments.length ? `<div class="row">${m.attachments.map(a => `<button type="button" class="plain small" data-ml-part="${esc(a.part)}" data-ml-name="${esc(a.name)}">📎 ${esc(a.name)}</button>`).join('')}</div>` : ''}
+      ${m.html ? '<iframe id="mlFrame" sandbox="allow-popups allow-popups-to-escape-sandbox" title="Message"></iframe>' : `<pre class="mail-text">${esc(m.text)}</pre>`}`;
+    if (m.html) $('mlFrame').srcdoc = mailFrame(m.html, ml.images);
+  }
+  const plainOf = m => m.text || new DOMParser().parseFromString(m.html, 'text/html').body.textContent.replace(/\n{3,}/g, '\n\n').trim();
+  function compose(mode) {
+    const m = mode === 'new' ? null : ml.open, mine = new Set(ml.boxes.map(b => b.email));
+    const from = m ? m.box_id : Number($('mlBox').value) || ml.boxes[0]?.id;
+    const to = !m || mode === 'forward' ? '' : (m.reply_to.length ? m.reply_to : m.from).map(p => p.address).join(', ');
+    const cc = mode === 'all' ? [...m.to, ...m.cc].map(p => p.address).filter(a => !mine.has(a) && !to.includes(a)).join(', ') : '';
+    const subject = !m ? '' : `${mode === 'forward' ? 'Fwd' : 'Re'}: ${m.subject.replace(/^((re|fwd?):\s*)+/i, '')}`;
+    const quoted = !m ? '' : mode === 'forward' ? `\n\n---------- Forwarded message ----------\nFrom: ${m.from.map(p => p.address).join(', ')}\nDate: ${new Date(m.date).toLocaleString('en-GB')}\nSubject: ${m.subject}\n\n${plainOf(m)}`
+      : `\n\nOn ${new Date(m.date).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}, ${m.from[0]?.name || m.from[0]?.address} wrote:\n${plainOf(m).split('\n').map(l => `> ${l}`).join('\n')}`;
+    ml.reply = m && mode !== 'forward' ? { in_reply_to: m.message_id, references: m.references } : {};
+    $('mlPane').classList.add('reading');
+    $('mlRead').innerHTML = `<button type="button" class="plain small mail-back" data-ml-act="back">Back</button><h3 style="margin:0">${m ? (mode === 'forward' ? 'Forward' : 'Reply') : 'New email'}</h3>
+      <label>From <select id="mcFrom">${ml.boxes.map(b => `<option value="${b.id}" ${b.id === from ? 'selected' : ''}>${esc(b.name)} (${esc(b.email)})</option>`).join('')}</select></label>
+      <label>To <input id="mcTo" value="${esc(to)}" placeholder="Separate addresses with commas"></label>
+      <label>Copy to <input id="mcCc" value="${esc(cc)}"></label>
+      <label>Subject <input id="mcSubject" value="${esc(subject)}" maxlength="300"></label>
+      <label>Message <textarea id="mcText" rows="14">${esc(`\n\n${signOff.trimStart()}${quoted}`)}</textarea></label>
+      ${mode === 'forward' && m.attachments.length ? '<p class="muted">Attachments are not forwarded. Download them above and send them from your mail program if needed.</p>' : ''}
+      <div class="row"><button type="button" class="small" data-ml-act="send">Send</button><button type="button" class="plain small" data-ml-act="cancel">Cancel</button><span id="mcOut" class="muted"></span></div>`;
+    $('mcText').focus(); $('mcText').setSelectionRange(0, 0);
+  }
+  $('mlBox').addEventListener('change', () => { ml.open = null; $('mlRead').innerHTML = '<p class="muted">Pick a message to read it.</p>'; loadMail(); });
+  $('mlRefresh').addEventListener('click', () => loadMail());
+  $('mlMore').addEventListener('click', () => loadMail(true));
+  $('mlWrite').addEventListener('click', () => ml.boxes.length ? compose('new') : ($('mlBoxes').open = true));
+  $('mlList').addEventListener('click', e => { const t = e.target.closest('[data-ml]'); if (!t) return; const [box, uid] = t.dataset.ml.split(':').map(Number); openMail(box, uid); });
+  $('mlRead').addEventListener('click', async e => {
+    const t = e.target.closest('[data-ml-act], [data-ml-part]'); if (!t) return;
+    const m = ml.open, act = t.dataset.mlAct;
+    try {
+      if (t.dataset.mlPart) { const blob = await (await api(`/mail/${m.box_id}/${m.uid}/parts/${t.dataset.mlPart}`)).blob(), a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = t.dataset.mlName; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10_000); return; }
+      if (act === 'back' || act === 'cancel') { $('mlPane').classList.remove('reading'); return m && act === 'cancel' ? drawOpen() : null; }
+      if (act === 'reply' || act === 'all' || act === 'forward') return compose(act);
+      if (act === 'images') { ml.images = true; return drawOpen(); }
+      if (act === 'unread') { t.disabled = true; await api(`/mail/${m.box_id}/${m.uid}/seen`, { method: 'POST', body: JSON.stringify({ seen: false }) }); ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Marked unread.</p>'; return loadMail(); }
+      if (act === 'delete') { if (!confirm('Move this message to the Trash?')) return; t.disabled = true; await api(`/mail/${m.box_id}/${m.uid}`, { method: 'DELETE' }); ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Moved to the Trash.</p>'; return loadMail(); }
+      if (act === 'send') {
+        const to = $('mcTo').value.trim(); if (!to) { $('mcOut').innerHTML = '<span class="bad">Say who it is to</span>'; return; }
+        if (!confirm(`Send this email to ${to}?`)) return;
+        t.disabled = true; $('mcOut').textContent = 'Sending...';
+        const r = await (await api(`/mailboxes/${$('mcFrom').value}/send`, { method: 'POST', body: JSON.stringify({ to, cc: $('mcCc').value.trim(), subject: $('mcSubject').value, text: $('mcText').value, ...ml.reply }) })).json();
+        $('mlRead').innerHTML = `<button type="button" class="plain small mail-back" data-ml-act="back">Back</button><p class="good">Sent${r.filed ? '' : ". It could not be saved in the Sent folder, so it won't show in webmail"}.</p>`;
+      }
+    } catch (err) { t.disabled = false; ($('mcOut') ?? $('mlRead')).insertAdjacentHTML('beforeend', `<span class="bad"> ${esc(err.message)}</span>`); }
+  });
+  // The Inboxes card: add, change or remove a mailbox. Saving logs in first, so a wrong password shows straight away.
+  function drawBoxes() {
+    $('mlBoxRows').innerHTML = ml.boxes.map(b => `<div><span><b>${esc(b.name)}</b> <span class="muted">${esc(b.email)}</span></span>
+      <span class="row"><button type="button" class="plain small" data-mb-edit="${b.id}">Change</button><button type="button" class="plain small" data-mb-del="${b.id}">Remove</button></span></div>`).join('');
+  }
+  const mbForm = (b = null) => { ml.editing = b?.id ?? null; $('mbTitle').textContent = b ? `Change ${b.name}` : 'Add an inbox'; $('mbSave').textContent = b ? 'Save inbox' : 'Add inbox'; $('mbCancel').hidden = !b;
+    $('mbName').value = b?.name ?? ''; $('mbEmail').value = b?.email ?? ''; $('mbPass').value = ''; $('mbPass').placeholder = b ? 'Blank keeps the saved password' : '';
+    $('mbUser').value = b && b.username !== b.email ? b.username : ''; $('mbImap').value = b?.imap_host ?? 'imap.stackmail.com'; $('mbImapPort').value = b?.imap_port ?? 993;
+    $('mbSmtp').value = b?.smtp_host ?? 'smtp.stackmail.com'; $('mbSmtpPort').value = b?.smtp_port ?? 465; };
+  $('mlBoxRows').addEventListener('click', async e => {
+    const t = e.target.closest('[data-mb-edit], [data-mb-del]'); if (!t) return;
+    if (t.dataset.mbEdit) { mbForm(ml.boxes.find(b => b.id === Number(t.dataset.mbEdit))); return $('mbName').focus(); }
+    const b = ml.boxes.find(x => x.id === Number(t.dataset.mbDel));
+    if (!confirm(`Remove ${b.email} from the studio? Its mail stays on the mail server.`)) return;
+    await api(`/mailboxes/${b.id}`, { method: 'DELETE' }).catch(err => { $('mbOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; });
+    if (ml.editing === b.id) mbForm(); loadMail();
+  });
+  $('mbCancel').addEventListener('click', () => mbForm());
+  $('mbSave').addEventListener('click', async () => {
+    const body = { name: $('mbName').value, email: $('mbEmail').value, password: $('mbPass').value, username: $('mbUser').value, imap_host: $('mbImap').value.trim(),
+      imap_port: Number($('mbImapPort').value) || 993, smtp_host: $('mbSmtp').value.trim(), smtp_port: Number($('mbSmtpPort').value) || 465 };
+    $('mbSave').disabled = true; $('mbOut').textContent = 'Logging in to check...';
+    try {
+      await api(ml.editing ? `/mailboxes/${ml.editing}` : '/mailboxes', { method: ml.editing ? 'PUT' : 'POST', body: JSON.stringify(body) });
+      $('mbOut').innerHTML = '<span class="good">Saved</span>'; mbForm(); loadMail();
+    } catch (err) { $('mbOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
+    finally { $('mbSave').disabled = false; }
   });
 
   // Customers: a list, and a page for each with their details, notes, email, invoices, analytics and a report.

@@ -19,6 +19,7 @@ import { analyseCampaign, analyseLead } from './analyse.ts';
 import { reportPdf } from './report.ts';
 import * as concept from './concept.ts';
 import * as customers from './customers.ts';
+import * as mail from './mail.ts';
 import { SERVICES, SERVICE_KEYS } from './services.ts';
 import * as dashboard from './dashboard.ts';
 import * as gsc from './gsc.ts';
@@ -373,6 +374,26 @@ export function buildApp() {
     additionalProperties: false, properties: { text: { type: 'string', minLength: 1, maxLength: 5000 } } } } }, async req => customers.addCustomerNote(req.params.id, req.body.text));
   app.post<{ Params: { id: number }; Body: { subject: string; body: string } }>('/customers/:id/email', { schema: { params: id, body: mailBody() } },
     async req => customers.email(req.params.id, req.body.subject, req.body.body));
+  // Mail: David's own inboxes.
+  const boxBody = { type: 'object', additionalProperties: false, required: ['email'], properties: { name: str(80), email: str(200), username: str(200), password: str(500),
+    imap_host: str(200), imap_port: { type: 'integer', minimum: 1, maximum: 65535 }, smtp_host: str(200), smtp_port: { type: 'integer', minimum: 1, maximum: 65535 } } };
+  const msgParams = { type: 'object', properties: { box: { type: 'integer' }, uid: { type: 'integer' } } };
+  app.get('/mailboxes', async () => mail.mailboxes());
+  app.post<{ Body: mail.BoxInput }>('/mailboxes', { schema: { body: boxBody } }, async req => mail.saveMailbox(req.body));
+  app.put<{ Params: { id: number }; Body: mail.BoxInput }>('/mailboxes/:id', { schema: { params: id, body: boxBody } }, async req => mail.saveMailbox(req.body, req.params.id));
+  app.delete<{ Params: { id: number } }>('/mailboxes/:id', { schema: { params: id } }, async req => mail.removeMailbox(req.params.id));
+  app.get<{ Querystring: { box?: number; before?: number } }>('/mail', { schema: { querystring: { type: 'object', properties: { box: { type: 'integer' }, before: { type: 'integer', minimum: 1 } } } } },
+    async req => mail.inbox(req.query.box, req.query.before));
+  app.get<{ Params: { box: number; uid: number } }>('/mail/:box/:uid', { schema: { params: msgParams } }, async req => mail.message(req.params.box, req.params.uid));
+  app.get<{ Params: { box: number; uid: number; part: string } }>('/mail/:box/:uid/parts/:part', { schema: { params: { ...msgParams, properties: { ...msgParams.properties, part: { type: 'string', pattern: '^[0-9.]+$' } } } } },
+    async (req, reply) => { const a = await mail.attachment(req.params.box, req.params.uid, req.params.part);
+      return reply.type(/^[\w.+-]+\/[\w.+-]+$/.test(a.type) ? a.type : 'application/octet-stream').header('content-disposition', `attachment; filename="${a.name.replace(/[^\w. -]/g, '_')}"`).send(a.content); });
+  app.post<{ Params: { box: number; uid: number }; Body: { seen: boolean } }>('/mail/:box/:uid/seen', { schema: { params: msgParams, body: { type: 'object', required: ['seen'],
+    additionalProperties: false, properties: { seen: { type: 'boolean' } } } } }, async req => mail.markSeen(req.params.box, req.params.uid, req.body.seen));
+  app.delete<{ Params: { box: number; uid: number } }>('/mail/:box/:uid', { schema: { params: msgParams } }, async req => mail.trash(req.params.box, req.params.uid));
+  app.post<{ Params: { id: number }; Body: mail.Outgoing }>('/mailboxes/:id/send', { schema: { params: id, body: { type: 'object', required: ['to', 'subject', 'text'], additionalProperties: false,
+    properties: { to: str(1000), cc: str(1000), subject: str(300), text: { type: 'string', maxLength: 100_000 }, in_reply_to: str(500), references: str(5000) } } } },
+    async req => mail.send(req.params.id, req.body));
   app.get('/invoices', async () => customers.invoices());
   app.get('/invoice-settings', async () => customers.settings());
   app.put<{ Body: Partial<customers.InvoiceSettings> }>('/invoice-settings', { schema: { body: { type: 'object', additionalProperties: false, properties: {
