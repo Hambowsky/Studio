@@ -399,8 +399,11 @@ export function buildApp() {
     async req => { const ms = req.body.messages;
       for (const b of new Set(ms.map(m => m.box))) await mail.trash(b, ms.filter(m => m.box === b).map(m => m.uid), req.body.folder);
       return { ok: true, deleted: req.body.messages.length }; });
-  app.post<{ Params: { id: number }; Body: mail.Outgoing }>('/mailboxes/:id/send', { schema: { params: id, body: { type: 'object', required: ['to', 'subject', 'text'], additionalProperties: false,
-    properties: { to: str(1000), cc: str(1000), subject: str(300), text: { type: 'string', maxLength: 100_000 }, in_reply_to: str(500), references: str(5000) } } } },
+  app.post<{ Params: { id: number }; Body: mail.Outgoing }>('/mailboxes/:id/send', { bodyLimit: 30 * 1024 * 1024, schema: { params: id, body: { type: 'object', required: ['to', 'subject', 'text'], additionalProperties: false,
+    properties: { to: str(1000), cc: str(1000), subject: str(300), text: { type: 'string', maxLength: 100_000 }, in_reply_to: str(500), references: str(5000),
+      attachments: { type: 'array', maxItems: 20, items: { type: 'object', required: ['name', 'data'], additionalProperties: false, properties: { name: { type: 'string', minLength: 1, maxLength: 200 }, type: str(200), data: { type: 'string' } } } },
+      forward: { type: 'object', required: ['box', 'uid', 'parts'], additionalProperties: false, properties: { box: { type: 'integer' }, uid: { type: 'integer' }, folder: { enum: mail.FOLDERS },
+        parts: { type: 'array', maxItems: 50, items: { type: 'string', pattern: '^[0-9.]+$' } } } } } } } },
     async req => mail.send(req.params.id, req.body));
   app.get('/invoices', async () => customers.invoices());
   app.get('/invoice-settings', async () => customers.settings());

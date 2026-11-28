@@ -163,11 +163,17 @@ export async function trash(boxId: number, uids: number[], folder: Folder = 'inb
 }
 
 // Sends from one of the mailboxes, then files a copy in its Sent folder so webmail shows it too.
-export type Outgoing = { to: string; cc?: string; subject: string; text: string; in_reply_to?: string; references?: string };
+export type Outgoing = { to: string; cc?: string; subject: string; text: string; in_reply_to?: string; references?: string;
+  // Files added in the studio, base64 encoded, and attachments carried over from a message being forwarded.
+  attachments?: { name: string; type?: string; data: string }[]; forward?: { box: number; uid: number; folder?: Folder; parts: string[] } };
+export const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
 export async function send(boxId: number, m: Outgoing) {
   const b = box(boxId);
   if (!m.to.trim()) fail(400, 'Say who it is to');
-  const mail = { from: { name: b.name === b.email ? '' : b.name, address: b.email }, to: m.to, cc: m.cc || undefined, subject: m.subject, text: m.text,
+  const files = (m.attachments ?? []).map(a => ({ filename: a.name, contentType: a.type || undefined, content: Buffer.from(a.data, 'base64') }));
+  for (const part of m.forward?.parts ?? []) { const a = await attachment(m.forward!.box, m.forward!.uid, part, m.forward!.folder); files.push({ filename: a.name, contentType: a.type || undefined, content: a.content }); }
+  if (files.reduce((n, f) => n + f.content.length, 0) > MAX_ATTACH_BYTES) fail(413, 'The attachments come to more than 20 MB, which most mail servers refuse. Send fewer or smaller files.');
+  const mail = { attachments: files, from: { name: b.name === b.email ? '' : b.name, address: b.email }, to: m.to, cc: m.cc || undefined, subject: m.subject, text: m.text,
     inReplyTo: m.in_reply_to || undefined, references: [m.references, m.in_reply_to].filter(Boolean).join(' ') || undefined };
   const { message: raw } = await nodemailer.createTransport({ streamTransport: true, buffer: true }).sendMail(mail) as unknown as { message: Buffer };
   const smtp = nodemailer.createTransport({ host: b.smtp_host, port: b.smtp_port, secure: b.smtp_port === 465, auth: { user: b.username, pass: unseal(b.password) },
