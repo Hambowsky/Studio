@@ -1394,7 +1394,7 @@
     loadAlerts();
   });
   $('alTest').addEventListener('click', async () => {
-    try { const r = await (await api('/alerts/test', { method: 'POST' })).json(); alOut(`Sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.`); } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); }
+    try { const r = await (await api('/alerts/test', { method: 'POST' })).json(); alOut(`Sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.${r.errors?.length ? `<br><span class="bad">${r.errors.map(esc).join('<br>')}</span>` : ''}`); loadAlerts(); } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); }
   });
   for (const id of ['alNeeds', 'alMail']) $(id).addEventListener('change', () => api('/alerts/prefs', { method: 'PUT', body: JSON.stringify({ needs: $('alNeeds').checked, mail: $('alMail').checked }) }).catch(e => alOut(`<span class="bad">${esc(e.message)}</span>`)));
   $('alDevices').addEventListener('click', async e => {
