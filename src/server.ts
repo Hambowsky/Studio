@@ -378,19 +378,27 @@ export function buildApp() {
   const boxBody = { type: 'object', additionalProperties: false, required: ['email'], properties: { name: str(80), email: str(200), username: str(200), password: str(500),
     imap_host: str(200), imap_port: { type: 'integer', minimum: 1, maximum: 65535 }, smtp_host: str(200), smtp_port: { type: 'integer', minimum: 1, maximum: 65535 } } };
   const msgParams = { type: 'object', properties: { box: { type: 'integer' }, uid: { type: 'integer' } } };
+  const folderQ = { type: 'object', properties: { folder: { enum: mail.FOLDERS } } };
+  type FolderQ = { Querystring: { folder?: mail.Folder } };
   app.get('/mailboxes', async () => mail.mailboxes());
   app.post<{ Body: mail.BoxInput }>('/mailboxes', { schema: { body: boxBody } }, async req => mail.saveMailbox(req.body));
   app.put<{ Params: { id: number }; Body: mail.BoxInput }>('/mailboxes/:id', { schema: { params: id, body: boxBody } }, async req => mail.saveMailbox(req.body, req.params.id));
   app.delete<{ Params: { id: number } }>('/mailboxes/:id', { schema: { params: id } }, async req => mail.removeMailbox(req.params.id));
-  app.get<{ Querystring: { box?: number; before?: number } }>('/mail', { schema: { querystring: { type: 'object', properties: { box: { type: 'integer' }, before: { type: 'integer', minimum: 1 } } } } },
-    async req => mail.inbox(req.query.box, req.query.before));
-  app.get<{ Params: { box: number; uid: number } }>('/mail/:box/:uid', { schema: { params: msgParams } }, async req => mail.message(req.params.box, req.params.uid));
-  app.get<{ Params: { box: number; uid: number; part: string } }>('/mail/:box/:uid/parts/:part', { schema: { params: { ...msgParams, properties: { ...msgParams.properties, part: { type: 'string', pattern: '^[0-9.]+$' } } } } },
-    async (req, reply) => { const a = await mail.attachment(req.params.box, req.params.uid, req.params.part);
+  app.get<{ Querystring: { box?: number; before?: number; folder?: mail.Folder } }>('/mail', { schema: { querystring: { type: 'object', properties: { box: { type: 'integer' }, before: { type: 'integer', minimum: 1 }, folder: { enum: mail.FOLDERS } } } } },
+    async req => mail.inbox(req.query.box, req.query.before, req.query.folder));
+  app.get<{ Params: { box: number; uid: number } } & FolderQ>('/mail/:box/:uid', { schema: { params: msgParams, querystring: folderQ } }, async req => mail.message(req.params.box, req.params.uid, req.query.folder));
+  app.get<{ Params: { box: number; uid: number; part: string } } & FolderQ>('/mail/:box/:uid/parts/:part', { schema: { params: { ...msgParams, properties: { ...msgParams.properties, part: { type: 'string', pattern: '^[0-9.]+$' } } }, querystring: folderQ } },
+    async (req, reply) => { const a = await mail.attachment(req.params.box, req.params.uid, req.params.part, req.query.folder);
       return reply.type(/^[\w.+-]+\/[\w.+-]+$/.test(a.type) ? a.type : 'application/octet-stream').header('content-disposition', `attachment; filename="${a.name.replace(/[^\w. -]/g, '_')}"`).send(a.content); });
-  app.post<{ Params: { box: number; uid: number }; Body: { seen: boolean } }>('/mail/:box/:uid/seen', { schema: { params: msgParams, body: { type: 'object', required: ['seen'],
-    additionalProperties: false, properties: { seen: { type: 'boolean' } } } } }, async req => mail.markSeen(req.params.box, req.params.uid, req.body.seen));
-  app.delete<{ Params: { box: number; uid: number } }>('/mail/:box/:uid', { schema: { params: msgParams } }, async req => mail.trash(req.params.box, req.params.uid));
+  app.post<{ Params: { box: number; uid: number }; Body: { seen: boolean } } & FolderQ>('/mail/:box/:uid/seen', { schema: { params: msgParams, querystring: folderQ, body: { type: 'object', required: ['seen'],
+    additionalProperties: false, properties: { seen: { type: 'boolean' } } } } }, async req => mail.markSeen(req.params.box, req.params.uid, req.body.seen, req.query.folder));
+  // Deletes one or many messages, which may be in different inboxes.
+  app.post<{ Body: { folder?: mail.Folder; messages: { box: number; uid: number }[] } }>('/mail/delete', { schema: { body: { type: 'object', required: ['messages'], additionalProperties: false,
+    properties: { folder: { enum: mail.FOLDERS }, messages: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'object', required: ['box', 'uid'], additionalProperties: false,
+      properties: { box: { type: 'integer' }, uid: { type: 'integer', minimum: 1 } } } } } } } },
+    async req => { const ms = req.body.messages;
+      for (const b of new Set(ms.map(m => m.box))) await mail.trash(b, ms.filter(m => m.box === b).map(m => m.uid), req.body.folder);
+      return { ok: true, deleted: req.body.messages.length }; });
   app.post<{ Params: { id: number }; Body: mail.Outgoing }>('/mailboxes/:id/send', { schema: { params: id, body: { type: 'object', required: ['to', 'subject', 'text'], additionalProperties: false,
     properties: { to: str(1000), cc: str(1000), subject: str(300), text: { type: 'string', maxLength: 100_000 }, in_reply_to: str(500), references: str(5000) } } } },
     async req => mail.send(req.params.id, req.body));

@@ -222,6 +222,9 @@
   .inv-line { display: grid; grid-template-columns: 170px 1fr 70px 100px 32px; gap: 8px; align-items: center; }
   .mail { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; gap: 16px; align-items: start; }
   .mail-list { display: grid; gap: 2px; max-height: 72vh; overflow: auto; }
+  .mail-row { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px; }
+  .mail-row > input, .mail-bulk input { width: 16px; height: 16px; margin: 0 6px; accent-color: var(--red); }
+  .mail-bulk { padding: 4px 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
   button.mail-item { display: grid; gap: 2px; text-align: left; background: none; color: var(--body); font-weight: 400; padding: 10px 12px; border-radius: 10px; }
   button.mail-item:hover, button.mail-item.on { background: var(--field); }
   .mail-item .who { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
@@ -232,7 +235,7 @@
   .mail-read iframe { width: 100%; height: 62vh; border: 1px solid var(--line, #eee); border-radius: 10px; background: #fff; }
   .mail-text { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; }
   .mail-back { display: none; }
-  @media (max-width: 820px) { .mail { grid-template-columns: 1fr; } .mail.reading .mail-list { display: none; } .mail:not(.reading) .mail-read { display: none; } .mail-back { display: inline-block; } }
+  @media (max-width: 820px) { .mail { grid-template-columns: 1fr; } .mail.reading .mail-list, .mail.reading .mail-bulk { display: none; } .mail:not(.reading) .mail-read { display: none; } .mail-back { display: inline-block; } }
   .wp-mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #21759b; color: #fff; font: 700 11px/1 Georgia, serif; vertical-align: 2px; }
   .prod-line { display: grid; grid-template-columns: 1fr 120px 32px; gap: 8px; align-items: center; }
   @media (max-width: 820px) { .inv-line { grid-template-columns: 1fr 1fr 32px; } .inv-line [data-i=description], .inv-line [data-i=product] { grid-column: 1 / -1; } }
@@ -598,10 +601,12 @@
 <section class="view" data-view="mail" hidden>
   <div class="card">
     <div class="card-head"><h2>Mail</h2><div class="row"><select id="mlBox" style="width:auto" aria-label="Inbox"></select>
+      <select id="mlFolder" style="width:auto" aria-label="Folder"><option value="inbox">Inbox</option><option value="sent">Sent</option><option value="drafts">Drafts</option><option value="spam">Spam</option><option value="trash">Bin</option><option value="archive">Archive</option></select>
       <button type="button" class="plain small" id="mlRefresh">Refresh</button><button type="button" class="small" id="mlWrite">Write</button></div></div>
     <p id="mlNote" class="muted" hidden></p>
     <div class="mail" id="mlPane">
-      <div><div class="mail-list" id="mlList"></div><button type="button" class="plain small" id="mlMore" hidden>Load older</button></div>
+      <div><div class="row mail-bulk" id="mlBulk"><label class="check"><input type="checkbox" id="mlAll"> Select all</label><button type="button" class="plain small" id="mlDel" disabled>Delete</button></div>
+        <div class="mail-list" id="mlList"></div><button type="button" class="plain small" id="mlMore" hidden>Load older</button></div>
       <div class="mail-read" id="mlRead"><p class="muted">Pick a message to read it.</p></div>
     </div>
   </div>
@@ -1892,7 +1897,9 @@
   });
 
   // Mail: David's inboxes, read live from the mail server. Opening a message marks it read there too.
-  const ml = { boxes: [], status: [], list: [], open: null, editing: null, images: false };
+  const ml = { boxes: [], status: [], list: [], open: null, editing: null, images: false, folder: 'inbox', picked: new Set() };
+  const fq = () => `folder=${ml.folder}`;
+  const folderName = () => $('mlFolder').selectedOptions[0].textContent;
   const boxName = id => ml.boxes.find(b => b.id === id)?.name ?? '';
   const mailWhen = d => { const t = new Date(d); return t.toDateString() === new Date().toDateString() ? t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : dm(d); };
   const person = p => p.name ? `${esc(p.name)} <span class="muted">&lt;${esc(p.address)}&gt;</span>` : esc(p.address);
@@ -1904,17 +1911,17 @@
       $('mlBox').innerHTML = (ml.boxes.length > 1 ? '<option value="">All inboxes</option>' : '') + ml.boxes.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
       if (ml.boxes.some(b => String(b.id) === pick)) $('mlBox').value = pick;
       drawBoxes();
-      $('mlPane').hidden = $('mlBox').hidden = !ml.boxes.length;
+      $('mlPane').hidden = $('mlBox').hidden = $('mlFolder').hidden = !ml.boxes.length;
       if (!ml.boxes.length) { $('mlBoxes').open = true; mlOut('Add an inbox below to read its mail here.'); $('navMail').hidden = true; return; }
-      if (!more) $('mlList').innerHTML = '<p class="muted">Getting your mail...</p>';
+      if (!more) { $('mlList').innerHTML = '<p class="muted">Getting your mail...</p>'; ml.picked.clear(); }
       const box = $('mlBox').value, oldest = more ? Math.min(...ml.list.filter(m => String(m.box_id) === box).map(m => m.seq)) : 0;
-      const r = await (await api(`/mail?${new URLSearchParams({ ...(box ? { box } : {}), ...(oldest ? { before: oldest } : {}) })}`)).json();
+      const r = await (await api(`/mail?${new URLSearchParams({ ...(box ? { box } : {}), ...(oldest ? { before: oldest } : {}), folder: ml.folder })}`)).json();
       ml.list = more ? [...ml.list, ...r.messages] : r.messages;
       if (!more || !box) ml.status = r.boxes;
       const bad = r.boxes.filter(b => b.error);
       mlOut(bad.map(b => `<span class="bad">${esc(boxName(b.id))}: ${esc(b.error)}</span>`).join('<br>'));
       const unseen = ml.status.reduce((n, b) => n + b.unseen, 0);
-      $('navMail').hidden = !unseen; $('navMail').textContent = unseen;
+      if (ml.folder === 'inbox') { $('navMail').hidden = !unseen; $('navMail').textContent = unseen; }
       for (const o of $('mlBox').options) { const st = o.value ? ml.status.find(b => String(b.id) === o.value) : null, n = o.value ? st?.unseen : unseen;
         o.textContent = `${o.value ? boxName(Number(o.value)) : 'All inboxes'}${n ? ` (${n})` : ''}`; }
       const st = box && ml.status.find(b => String(b.id) === box);
@@ -1922,12 +1929,30 @@
       drawMail();
     } catch (e) { mlOut(`<span class="bad">${esc(e.message)}</span>`); }
   }
+  const mlKey = m => `${m.box_id}:${m.uid}`;
+  function drawPicked() {
+    const n = ml.picked.size;
+    $('mlDel').disabled = !n; $('mlDel').textContent = n ? `${ml.folder === 'trash' ? 'Delete for good' : 'Delete'} (${n})` : 'Delete';
+    $('mlAll').checked = n > 0 && n === ml.list.length; $('mlAll').indeterminate = n > 0 && n < ml.list.length;
+    $('mlBulk').hidden = !ml.list.length;
+  }
   function drawMail() {
-    const many = ml.boxes.length > 1 && !$('mlBox').value;
-    $('mlList').innerHTML = ml.list.map(m => `<button type="button" class="mail-item${m.seen ? '' : ' unread'}${ml.open && ml.open.box_id === m.box_id && ml.open.uid === m.uid ? ' on' : ''}" data-ml="${m.box_id}:${m.uid}">
-      <span class="who"><b>${esc(m.from.name || m.from.address)}</b><span>${m.attachments ? '📎 ' : ''}${esc(mailWhen(m.date))}</span></span>
-      <span class="subj">${esc(m.subject || '(no subject)')}</span>${many ? `<span class="muted" style="font-size:12px">${esc(boxName(m.box_id))}</span>` : ''}</button>`).join('')
-      || '<p class="muted">Nothing in this inbox.</p>';
+    const many = ml.boxes.length > 1 && !$('mlBox').value, outgoing = ml.folder === 'sent' || ml.folder === 'drafts';
+    $('mlList').innerHTML = ml.list.map(m => { const p = outgoing ? m.to : m.from; return `<div class="mail-row"><input type="checkbox" data-pick="${mlKey(m)}" aria-label="Select"${ml.picked.has(mlKey(m)) ? ' checked' : ''}><button type="button" class="mail-item${m.seen ? '' : ' unread'}${ml.open && ml.open.box_id === m.box_id && ml.open.uid === m.uid ? ' on' : ''}" data-ml="${mlKey(m)}">
+      <span class="who"><b>${outgoing ? 'To ' : ''}${esc(p.name || p.address)}</b><span>${m.attachments ? '📎 ' : ''}${esc(mailWhen(m.date))}</span></span>
+      <span class="subj">${esc(m.subject || '(no subject)')}</span>${many ? `<span class="muted" style="font-size:12px">${esc(boxName(m.box_id))}</span>` : ''}</button></div>`; }).join('')
+      || `<p class="muted">Nothing in ${esc(folderName())}.</p>`;
+    drawPicked();
+  }
+  // Deletes messages (from the list's ticks or the open one): to the Bin, or for good when already in the Bin.
+  async function deleteMail(items) {
+    const n = items.length, forGood = ml.folder === 'trash';
+    if (!confirm(forGood ? `Delete ${n === 1 ? 'this message' : `${n} messages`} for good? This cannot be undone.` : `Move ${n === 1 ? 'this message' : `${n} messages`} to the Bin?`)) return false;
+    await api('/mail/delete', { method: 'POST', body: JSON.stringify({ folder: ml.folder, messages: items.map(m => ({ box: m.box_id, uid: m.uid })) }) });
+    if (ml.open && items.some(m => m.box_id === ml.open.box_id && m.uid === ml.open.uid)) { ml.open = null; $('mlPane').classList.remove('reading');
+      $('mlRead').innerHTML = `<p class="muted">${forGood ? 'Deleted.' : 'Moved to the Bin.'}</p>`; }
+    await loadMail();
+    return true;
   }
   // HTML mail shows in a locked frame: no scripts, and no remote images (which tell the sender it was opened) until asked.
   const mailFrame = (html, images) => `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data: cid:${images ? ' https: http:' : ''}"><base target="_blank"><style>body{font-family:Archivo,Arial,sans-serif;font-size:14px;color:#1a1a1a;margin:12px;word-wrap:break-word}img{max-width:100%;height:auto}</style>${html}`;
@@ -1935,10 +1960,10 @@
     $('mlPane').classList.add('reading'); ml.images = false;
     $('mlRead').innerHTML = '<p class="muted">Opening...</p>';
     try {
-      const m = ml.open = await (await api(`/mail/${box}/${uid}`)).json();
+      const m = ml.open = await (await api(`/mail/${box}/${uid}?${fq()}`)).json();
       const item = ml.list.find(x => x.box_id === box && x.uid === uid);
       if (item && !item.seen) { item.seen = true; const st = ml.status.find(b => b.id === box); if (st) st.unseen = Math.max(0, st.unseen - 1);
-        const n = ml.status.reduce((t, b) => t + b.unseen, 0); $('navMail').hidden = !n; $('navMail').textContent = n; }
+        const n = ml.status.reduce((t, b) => t + b.unseen, 0); if (ml.folder === 'inbox') { $('navMail').hidden = !n; $('navMail').textContent = n; } }
       drawMail(); drawOpen();
     } catch (e) { $('mlRead').innerHTML = `<button type="button" class="plain small mail-back" data-ml-act="back">Back</button><p class="bad">${esc(e.message)}</p>`; }
   }
@@ -1948,7 +1973,7 @@
       <h3 style="margin:0">${esc(m.subject || '(no subject)')}</h3>
       <div style="font-size:13px">From ${m.from.map(person).join(', ')}<br><span class="muted">To ${m.to.map(p => esc(p.address)).join(', ')}${m.cc.length ? `, copy to ${m.cc.map(p => esc(p.address)).join(', ')}` : ''}, ${esc(new Date(m.date).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }))}${ml.boxes.length > 1 ? `, in ${esc(boxName(m.box_id))}` : ''}</span></div>
       <div class="row"><button type="button" class="small" data-ml-act="reply">Reply</button>${m.to.length + m.cc.length > 1 ? '<button type="button" class="plain small" data-ml-act="all">Reply all</button>' : ''}<button type="button" class="plain small" data-ml-act="forward">Forward</button>
-        <button type="button" class="plain small" data-ml-act="unread">Mark unread</button><button type="button" class="plain small" data-ml-act="delete">Delete</button>
+        <button type="button" class="plain small" data-ml-act="unread">Mark unread</button><button type="button" class="plain small" data-ml-act="delete">${ml.folder === 'trash' ? 'Delete for good' : 'Delete'}</button>
         ${m.html && remote && !ml.images ? '<button type="button" class="plain small" data-ml-act="images">Show images</button>' : ''}</div>
       ${m.attachments.length ? `<div class="row">${m.attachments.map(a => `<button type="button" class="plain small" data-ml-part="${esc(a.part)}" data-ml-name="${esc(a.name)}">📎 ${esc(a.name)}</button>`).join('')}</div>` : ''}
       ${m.html ? '<iframe id="mlFrame" sandbox="allow-popups allow-popups-to-escape-sandbox" title="Message"></iframe>' : `<pre class="mail-text">${esc(m.text)}</pre>`}`;
@@ -1975,6 +2000,14 @@
       <div class="row"><button type="button" class="small" data-ml-act="send">Send</button><button type="button" class="plain small" data-ml-act="cancel">Cancel</button><span id="mcOut" class="muted"></span></div>`;
     $('mcText').focus(); $('mcText').setSelectionRange(0, 0);
   }
+  $('mlFolder').addEventListener('change', () => { ml.folder = $('mlFolder').value; ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Pick a message to read it.</p>'; loadMail(); });
+  $('mlList').addEventListener('change', e => { const t = e.target.closest('[data-pick]'); if (!t) return; t.checked ? ml.picked.add(t.dataset.pick) : ml.picked.delete(t.dataset.pick); drawPicked(); });
+  $('mlAll').addEventListener('change', () => { ml.picked = new Set($('mlAll').checked ? ml.list.map(mlKey) : []); drawMail(); });
+  $('mlDel').addEventListener('click', async () => {
+    const items = ml.list.filter(m => ml.picked.has(mlKey(m)));
+    $('mlDel').disabled = true;
+    try { await deleteMail(items); } catch (e) { mlOut(`<span class="bad">${esc(e.message)}</span>`); } finally { drawPicked(); }
+  });
   $('mlBox').addEventListener('change', () => { ml.open = null; $('mlRead').innerHTML = '<p class="muted">Pick a message to read it.</p>'; loadMail(); });
   $('mlRefresh').addEventListener('click', () => loadMail());
   $('mlMore').addEventListener('click', () => loadMail(true));
@@ -1984,13 +2017,13 @@
     const t = e.target.closest('[data-ml-act], [data-ml-part]'); if (!t) return;
     const m = ml.open, act = t.dataset.mlAct;
     try {
-      if (t.dataset.mlPart) { const blob = await (await api(`/mail/${m.box_id}/${m.uid}/parts/${t.dataset.mlPart}`)).blob(), a = document.createElement('a');
+      if (t.dataset.mlPart) { const blob = await (await api(`/mail/${m.box_id}/${m.uid}/parts/${t.dataset.mlPart}?${fq()}`)).blob(), a = document.createElement('a');
         a.href = URL.createObjectURL(blob); a.download = t.dataset.mlName; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10_000); return; }
       if (act === 'back' || act === 'cancel') { $('mlPane').classList.remove('reading'); return m && act === 'cancel' ? drawOpen() : null; }
       if (act === 'reply' || act === 'all' || act === 'forward') return compose(act);
       if (act === 'images') { ml.images = true; return drawOpen(); }
-      if (act === 'unread') { t.disabled = true; await api(`/mail/${m.box_id}/${m.uid}/seen`, { method: 'POST', body: JSON.stringify({ seen: false }) }); ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Marked unread.</p>'; return loadMail(); }
-      if (act === 'delete') { if (!confirm('Move this message to the Trash?')) return; t.disabled = true; await api(`/mail/${m.box_id}/${m.uid}`, { method: 'DELETE' }); ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Moved to the Trash.</p>'; return loadMail(); }
+      if (act === 'unread') { t.disabled = true; await api(`/mail/${m.box_id}/${m.uid}/seen?${fq()}`, { method: 'POST', body: JSON.stringify({ seen: false }) }); ml.open = null; $('mlPane').classList.remove('reading'); $('mlRead').innerHTML = '<p class="muted">Marked unread.</p>'; return loadMail(); }
+      if (act === 'delete') { t.disabled = true; if (!await deleteMail([m])) t.disabled = false; return; }
       if (act === 'send') {
         const to = $('mcTo').value.trim(); if (!to) { $('mcOut').innerHTML = '<span class="bad">Say who it is to</span>'; return; }
         if (!confirm(`Send this email to ${to}?`)) return;
