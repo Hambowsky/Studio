@@ -347,7 +347,8 @@
   <details class="card" id="alCard" style="display:grid;gap:12px;margin-top:16px">
     <summary><h2 style="display:inline">Phone alerts</h2> <span class="muted" id="alState"></span></summary>
     <p class="muted" id="alHelp">Get an alert on this device when something new lands under Needs you or new mail arrives.</p>
-    <div class="row"><button type="button" class="small" id="alOn">Turn on for this device</button><button type="button" class="plain small" id="alTest">Send a test</button></div>
+    <div class="row"><button type="button" class="small" id="alOn">Turn on for this device</button><button type="button" class="plain small" id="alTest">Send a test</button><button type="button" class="plain small" id="alCheck">Check now</button></div>
+    <p class="muted" id="alLast"></p>
     <div class="row"><label class="check"><input type="checkbox" id="alNeeds" style="accent-color:var(--red)"> Needs you</label><label class="check"><input type="checkbox" id="alMail" style="accent-color:var(--red)"> New mail</label></div>
     <div id="alDevices" class="list"></div>
     <p id="alOut" class="muted"></p>
@@ -1369,7 +1370,9 @@
       $('alNeeds').checked = a.prefs.needs; $('alMail').checked = a.prefs.mail;
       $('alState').textContent = a.devices.length ? `On for ${a.devices.length} device${a.devices.length === 1 ? '' : 's'}` : 'Off';
       $('alOn').textContent = here ? 'Turn off for this device' : 'Turn on for this device'; $('alOn').dataset.on = here ? '1' : '';
-      $('alOn').disabled = !pushOk; $('alTest').hidden = !a.devices.length;
+      $('alOn').disabled = !pushOk; $('alTest').hidden = $('alCheck').hidden = !a.devices.length;
+      const l = a.last, t = l && new Date(l.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      $('alLast').innerHTML = !l ? 'The studio looks for anything new every 2 minutes.' : `Last looked at ${esc(t)}${l.mail.length ? `, in ${l.mail.map(m => m.error ? `<span class="bad">${esc(m.name)} (${esc(m.error)})</span>` : esc(m.name)).join(', ')}` : ''}. ${l.alerts.length ? `Found ${l.alerts.map(esc).join('; ')}${l.sent ? '' : ' <span class="bad">but no device took the alert</span>'}.` : 'Nothing new.'}${l.error ? ` <span class="bad">${esc(l.error)}</span>` : ''} It looks every 2 minutes.`;
       $('alHelp').innerHTML = !pushOk && isIos && !standalone ? 'On your iPhone, open this page in Safari, tap Share, then <b>Add to Home Screen</b>. Open the studio from the new icon and come back here to turn alerts on.'
         : !pushOk ? 'This browser cannot show alerts. Try Chrome, Edge, Firefox or Safari, or the studio added to your home screen.'
         : 'Get an alert on this device when something new lands under Needs you or new mail arrives.';
@@ -1392,6 +1395,9 @@
       }
     } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); }
     loadAlerts();
+  });
+  $('alCheck').addEventListener('click', async () => {
+    $('alCheck').disabled = true; try { await api('/alerts/check', { method: 'POST' }); } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); } $('alCheck').disabled = false; loadAlerts();
   });
   $('alTest').addEventListener('click', async () => {
     try { const r = await (await api('/alerts/test', { method: 'POST' })).json(); alOut(`Sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.${r.errors?.length ? `<br><span class="bad">${r.errors.map(esc).join('<br>')}</span>` : ''}`); loadAlerts(); } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); }
