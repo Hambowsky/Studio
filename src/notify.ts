@@ -71,17 +71,21 @@ const NEEDS: Record<string, [string, string, string]> = {
 
 // Looks for anything new since last time: a Needs you number that went up, or unread mail with a newer UID. The first
 // run only notes where things stand.
+export type LastCheck = { at: string; sent: number; alerts: string[]; mail: { name: string; error?: string }[]; error?: string };
+export const lastCheck = () => get<LastCheck | null>('notify-last', null);
 export async function check() {
   if (!(db.prepare('SELECT COUNT(*) AS n FROM push_subs').get() as { n: number }).n) return { sent: 0 };
+  const last: LastCheck = { at: new Date().toISOString(), sent: 0, alerts: [], mail: [] };
+  try { return await look(last); }
+  catch (err) { last.error = (err as Error).message; console.error('alert check failed', err); return last; }
+  finally { put('notify-last', last); }
+}
+async function look(last: LastCheck) {
   const p = prefs(), alerts: [string, string, string][] = [];
-  if (p.needs) {
-    const now = { ...dashboard.sales().needs, ...dashboard.marketing().needs } as Record<string, number>, was = get<Record<string, number> | null>('notify-needs', null);
-    if (was) for (const [k, [one, many, href]] of Object.entries(NEEDS)) if ((now[k] ?? 0) > (was[k] ?? 0)) alerts.push(['Needs you', `${now[k]} ${now[k] === 1 ? one : many}`, `/${href}`]);
-    put('notify-needs', now);
-  }
   if (p.mail) {
     const was = get<Record<string, number>>('notify-mail', {}), boxes = await newMail(was);
     for (const b of boxes) {
+      last.mail.push({ name: b.name, ...(b.error ? { error: b.error } : {}) });
       const m = b.messages;
       if (m.length === 1) alerts.push([`New email from ${m[0].from}`, m[0].subject || '(no subject)', '/#mail']);
       else if (m.length > 1) alerts.push([`${m.length} new emails`, m.slice(0, 3).map(x => x.from).join(', '), '/#mail']);
@@ -89,13 +93,17 @@ export async function check() {
     }
     put('notify-mail', was);
   }
-  let sent = 0;
-  for (const [title, body, url] of alerts) sent += (await push(title, body, url)).sent;
-  return { sent };
+  if (p.needs) {
+    const now = { ...dashboard.sales().needs, ...dashboard.marketing().needs } as Record<string, number>, was = get<Record<string, number> | null>('notify-needs', null);
+    if (was) for (const [k, [one, many, href]] of Object.entries(NEEDS)) if ((now[k] ?? 0) > (was[k] ?? 0)) alerts.push(['Needs you', `${now[k]} ${now[k] === 1 ? one : many}`, `/${href}`]);
+    put('notify-needs', now);
+  }
+  for (const [title, body, url] of alerts) { last.sent += (await push(title, body, url)).sent; last.alerts.push(`${title}: ${body}`); }
+  return last;
 }
 
 export function startAlerts() {
   const run = () => void check().catch(() => {});
   setTimeout(run, 30_000).unref();
-  setInterval(run, 5 * 60_000).unref();
+  setInterval(run, 2 * 60_000).unref();
 }

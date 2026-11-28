@@ -100,20 +100,21 @@ export async function inbox(boxId?: number, before?: number, folder: Folder = 'i
 // Unread messages that arrived in each inbox after the UID last seen there, for alerts. With no UID yet it only
 // returns where to start from, so turning alerts on does not announce the whole inbox.
 export async function newMail(after: Record<string, number>) {
-  const out: { box: string; uidNext: number; messages: { from: string; subject: string }[] }[] = [];
+  const out: { box: string; name: string; uidNext: number; messages: { from: string; subject: string }[]; error?: string }[] = [];
   for (const b of db.prepare('SELECT * FROM mailboxes').all() as Box[]) {
     try {
       out.push(await withBox(b, async c => {
         const lock = await c.getMailboxLock('INBOX', { readOnly: true });
         try {
-          const uidNext = (c.mailbox as { uidNext: number }).uidNext, last = after[b.id], messages = [];
+          // Some servers leave UIDNEXT out of the folder's opening reply, so ask for it then.
+          const uidNext = (c.mailbox as { uidNext?: number }).uidNext || ((await c.status('INBOX', { uidNext: true })) || {}).uidNext || 0, last = after[b.id], messages = [];
           if (last && uidNext > last) for await (const m of c.fetch(`${last}:*`, { uid: true, envelope: true, flags: true }, { uid: true })) {
             if (m.uid >= last && !m.flags?.has('\\Seen')) messages.push({ from: m.envelope?.from?.[0]?.name || m.envelope?.from?.[0]?.address || 'Someone', subject: m.envelope?.subject ?? '' });
           }
-          return { box: String(b.id), uidNext, messages };
+          return { box: String(b.id), name: b.name, uidNext, messages };
         } finally { lock.release(); }
       }));
-    } catch { /* an inbox that cannot be reached is tried again next time */ }
+    } catch (err) { out.push({ box: String(b.id), name: b.name, uidNext: after[b.id] ?? 0, messages: [], error: (err as Error & { responseText?: string }).responseText || (err as Error).message }); } // tried again next time
   }
   return out;
 }

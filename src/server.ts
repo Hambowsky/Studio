@@ -623,7 +623,8 @@ export function buildApp() {
   const hidden = (): Hidden => Object.fromEntries(Object.entries(JSON.parse((db.prepare(`SELECT value FROM settings WHERE key = 'needs-hidden'`).get() as { value: string } | undefined)?.value ?? '{}'))
     .map(([k, v]) => [k, typeof v === 'number' ? { n: v, at: Date.now() } : v as { n: number; at: number }])); // ponytail: number form is from before hide times
   // Phone alerts.
-  app.get('/alerts', async () => ({ public_key: notify.publicKey(), prefs: notify.prefs(), devices: notify.devices() }));
+  app.get('/alerts', async () => ({ public_key: notify.publicKey(), prefs: notify.prefs(), devices: notify.devices(), last: notify.lastCheck() }));
+  app.post('/alerts/check', async () => notify.check());
   app.post<{ Body: { subscription: { endpoint: string; keys: { p256dh: string; auth: string } }; label?: string } }>('/alerts/subscribe', { schema: { body: { type: 'object', required: ['subscription'], properties: {
     label: str(200), subscription: { type: 'object', required: ['endpoint', 'keys'], properties: { endpoint: str(2000), keys: { type: 'object', required: ['p256dh', 'auth'], properties: { p256dh: str(200), auth: str(100) } } } } } } } },
     async req => notify.subscribe(req.body.subscription, req.body.label));
