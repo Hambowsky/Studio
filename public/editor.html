@@ -234,7 +234,11 @@
   .mail-item .who { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
   .mail-item .who span:last-child { color: var(--muted); white-space: nowrap; }
   .mail-item .subj { color: var(--ink); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mail-item.unread .subj, .mail-item.unread .who b { font-weight: 700; color: var(--ink); }
+  .mail-item.unread .subj, .mail-item.unread .who b { font-weight: 800; color: var(--ink); }
+  button.mail-item.unread { background: var(--red-soft); box-shadow: inset 3px 0 0 var(--red); }
+  button.mail-item.unread:hover, button.mail-item.unread.on { background: #f6dde0; }
+  .mail-item.unread .who b::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-right: 6px; vertical-align: 1px; }
+  .mail-item.unread .who span:last-child { color: var(--red); font-weight: 600; }
   .mail-read { min-width: 0; display: grid; gap: 10px; align-content: start; }
   .mail-read iframe { width: 100%; height: 62vh; border: 1px solid var(--line, #eee); border-radius: 10px; background: #fff; }
   .mail-text { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; }
