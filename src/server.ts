@@ -611,12 +611,16 @@ export function buildApp() {
 
   app.get('/dashboard/marketing', async () => dashboard.marketing());
   app.get('/dashboard/sales', async () => dashboard.sales());
-  // Needs you items David has hidden, each with the count it had then, so it comes back when something new arrives.
-  const hiddenRow = () => db.prepare(`SELECT value FROM settings WHERE key = 'needs-hidden'`).get() as { value: string } | undefined;
-  app.get('/dashboard/hidden', async () => JSON.parse(hiddenRow()?.value ?? '{}'));
+  // Needs you items David has hidden, each with the count it had then (so it comes back when something new arrives) and
+  // when it was hidden (after a day it can no longer be shown again).
+  type Hidden = Record<string, { n: number; at: number }>;
+  const hidden = (): Hidden => Object.fromEntries(Object.entries(JSON.parse((db.prepare(`SELECT value FROM settings WHERE key = 'needs-hidden'`).get() as { value: string } | undefined)?.value ?? '{}'))
+    .map(([k, v]) => [k, typeof v === 'number' ? { n: v, at: Date.now() } : v as { n: number; at: number }])); // ponytail: number form is from before hide times
+  app.get('/dashboard/hidden', async () => hidden());
   app.put<{ Body: Record<string, number> }>('/dashboard/hidden', { schema: { body: { type: 'object', maxProperties: 200, additionalProperties: { type: 'integer', minimum: 0 } } } }, async req => {
-    db.prepare(`INSERT INTO settings (key, value) VALUES ('needs-hidden', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(req.body));
-    return req.body;
+    const was = hidden(), now: Hidden = Object.fromEntries(Object.entries(req.body).map(([k, n]) => [k, was[k]?.n === n ? was[k] : { n, at: Date.now() }]));
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('needs-hidden', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(now));
+    return now;
   });
   app.get('/search-console', async () => gsc.week());
   app.get('/usage', async () => ({

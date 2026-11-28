@@ -333,5 +333,9 @@ test('hidden Needs you items are kept with their counts', async () => {
   assert.deepEqual((await call('GET', '/dashboard/hidden')).json(), {});
   assert.equal((await call('PUT', '/dashboard/hidden', { '#invoices  renewal invoice ready to check and send': 'x' })).statusCode, 400);
   await call('PUT', '/dashboard/hidden', { '#invoices  renewal invoice ready to check and send': 2 });
-  assert.deepEqual((await call('GET', '/dashboard/hidden')).json(), { '#invoices  renewal invoice ready to check and send': 2 });
+  const h = (await call('GET', '/dashboard/hidden')).json()['#invoices  renewal invoice ready to check and send'];
+  assert.equal(h.n, 2);
+  assert.ok(Math.abs(h.at - Date.now()) < 5000, 'stamped with when it was hidden');
+  await call('PUT', '/dashboard/hidden', { '#invoices  renewal invoice ready to check and send': 2, '#emails  x': 1 });
+  assert.equal((await call('GET', '/dashboard/hidden')).json()['#invoices  renewal invoice ready to check and send'].at, h.at, 'hiding another keeps the first time');
 });
