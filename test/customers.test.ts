@@ -312,3 +312,12 @@ test('a WordPress login is kept encrypted and only shown on the customer page', 
   assert.equal(listed.wp_username, 'admin');
   assert.equal((await call('PUT', `/customers/${id}`, { wp_password: '' })).json().wp_password, '');
 });
+
+test('an inbox is only saved once it logs in, and its password never comes back', async () => {
+  assert.equal((await call('POST', '/mailboxes', { email: 'david@example.com' })).statusCode, 400, 'a password is needed');
+  const r = await call('POST', '/mailboxes', { email: 'david@example.com', password: 'x', imap_host: '127.0.0.1', imap_port: 1 });
+  assert.equal(r.statusCode, 400);
+  assert.match(r.json().message, /Could not log in to david@example.com/);
+  assert.deepEqual((await call('GET', '/mailboxes')).json(), []);
+  assert.equal((await call('GET', '/mail')).json().messages.length, 0);
+});

@@ -379,7 +379,20 @@ const migrations = [
   `ALTER TABLE customers ADD COLUMN wordpress TEXT NOT NULL DEFAULT '';    -- '1' when their website is WordPress
    ALTER TABLE customers ADD COLUMN wp_login_url TEXT NOT NULL DEFAULT '';
    ALTER TABLE customers ADD COLUMN wp_username TEXT NOT NULL DEFAULT '';
-   ALTER TABLE customers ADD COLUMN wp_password TEXT NOT NULL DEFAULT ''`, // encrypted (AES-256-GCM), see secret() in customers.ts
+   ALTER TABLE customers ADD COLUMN wp_password TEXT NOT NULL DEFAULT ''`, // encrypted (AES-256-GCM), see secret.ts
+
+  `CREATE TABLE mailboxes (            -- David's own inboxes, read and answered on the Mail page
+     id INTEGER PRIMARY KEY,
+     name TEXT NOT NULL,               -- his label, such as Sales
+     email TEXT NOT NULL UNIQUE,
+     username TEXT NOT NULL,           -- the login, usually the email address
+     password TEXT NOT NULL,           -- encrypted, see secret.ts
+     imap_host TEXT NOT NULL,
+     imap_port INTEGER NOT NULL,
+     smtp_host TEXT NOT NULL,
+     smtp_port INTEGER NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   )`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

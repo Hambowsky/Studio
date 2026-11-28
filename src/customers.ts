@@ -1,11 +1,9 @@
 // Customers: the businesses Red Cherry IT works for. Their details, notes, emails from David's own mailbox,
 // invoices as PDFs, their website's numbers from Google, and a monthly report. Plain code, no Claude.
-import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import tls from 'node:tls';
 import { db } from './db.ts';
-import { DATA_DIR, fail, GA4_API_URL, GSC_CREDENTIALS, SMTP_FROM, SMTP_HOST } from './config.ts';
+import { seal, unseal } from './secret.ts';
+import { fail, GA4_API_URL, GSC_CREDENTIALS, SMTP_FROM, SMTP_HOST } from './config.ts';
 import { lead, updateLead, addNote } from './leads.ts';
 import { transport } from './outreach.ts';
 import { pdf } from './render.ts';
@@ -26,20 +24,6 @@ export function saveProducts(list: Product[]) {
 const FIELDS = ['business_name', 'first_name', 'last_name', 'email', 'phone', 'address', 'website_url', 'ga4_property', 'gsc_site',
   'hosting_external', 'hosting_supplier', 'domain_external', 'domain_supplier', 'wordpress', 'wp_login_url', 'wp_username', 'wp_password'] as const;
 
-// Client passwords are kept encrypted, so a copy of the database alone does not give them away. The key is
-// CREDENTIALS_KEY when set, otherwise a random one made once in the data folder (keep it with the database).
-let key: Buffer | undefined;
-const secretKey = () => key ??= process.env.CREDENTIALS_KEY ? crypto.createHash('sha256').update(process.env.CREDENTIALS_KEY).digest() : (() => {
-  const file = path.join(DATA_DIR, 'credentials.key');
-  if (!fs.existsSync(file)) fs.writeFileSync(file, crypto.randomBytes(32).toString('base64'), { mode: 0o600, flag: 'wx' });
-  return Buffer.from(fs.readFileSync(file, 'utf8'), 'base64');
-})();
-const seal = (text: string) => { if (!text) return '';
-  const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', secretKey(), iv), body = Buffer.concat([c.update(text, 'utf8'), c.final()]);
-  return [iv, c.getAuthTag(), body].map(b => b.toString('base64')).join('.'); };
-const unseal = (sealed: string) => { if (!sealed) return '';
-  try { const [iv, tag, body] = sealed.split('.').map(b => Buffer.from(b, 'base64')), d = crypto.createDecipheriv('aes-256-gcm', secretKey(), iv); d.setAuthTag(tag);
-    return Buffer.concat([d.update(body), d.final()]).toString('utf8'); } catch { return ''; } }; // a lost key reads as blank, to be typed in again
 export type CustomerInput = Partial<Record<typeof FIELDS[number], string>> & { services?: string[] };
 type Row = Record<typeof FIELDS[number], string> & { id: number; services: string; lead_id: number | null; recurring: string | null; site_check: string | null; created_at: string; updated_at: string };
 type Item = { description: string; qty: number; price: number };
