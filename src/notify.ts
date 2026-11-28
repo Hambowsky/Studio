@@ -35,15 +35,20 @@ export const devices = () => db.prepare('SELECT label, created_at, endpoint FROM
 // Sends one alert to every device. A device the push service says is gone is dropped.
 export async function push(title: string, body: string, url = '/') {
   const v = vapid(), subs = db.prepare('SELECT endpoint, keys FROM push_subs').all() as { endpoint: string; keys: string }[];
-  let sent = 0;
+  let sent = 0; const errors: string[] = [];
   await Promise.all(subs.map(async s => {
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: JSON.parse(s.keys) }, JSON.stringify({ title, body, url }),
         { vapidDetails: { subject: 'mailto:alerts@redcherryit.com', publicKey: v.publicKey, privateKey: v.privateKey }, TTL: 6 * 3600 });
       sent++;
-    } catch (err) { if ([404, 410].includes((err as { statusCode?: number }).statusCode ?? 0)) unsubscribe(s.endpoint); }
+    } catch (err) {
+      const e = err as { statusCode?: number; body?: string; message: string };
+      if ([404, 410].includes(e.statusCode ?? 0)) unsubscribe(s.endpoint);
+      errors.push(`${new URL(s.endpoint).host}: ${e.statusCode ? `${e.statusCode} ${String(e.body ?? '').slice(0, 200)}` : e.message}`);
+      console.error('push failed', errors.at(-1));
+    }
   }));
-  return { sent, devices: subs.length };
+  return { sent, devices: subs.length, errors };
 }
 
 // What each Needs you number means, as on the Overview.
