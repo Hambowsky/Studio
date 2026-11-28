@@ -1279,25 +1279,27 @@
 
   let leadTimer;
   // Dashboards. "Needs you" links to the page where each thing is done.
-  // An item David hides stays hidden until its count changes, so anything new still shows.
+  // An item David hides stays hidden until its count changes, so anything new still shows. For a day it can be shown
+  // again; after that it is gone.
+  const DAY = 86_400_000, isHidden = (key, n) => needsHidden[key]?.n === n, restorable = key => Date.now() - needsHidden[key].at < DAY;
   let needsHidden = {}, needsKeys = new Set();
   const todo = items => {
     const all = items.filter(([n]) => n).map(([n, text, href, attrs = '']) => [n, typeof text === 'string' ? text : text[n === 1 ? 0 : 1], href, attrs, `${href} ${attrs} ${typeof text === 'string' ? text : text[0]}`]);
     needsKeys = new Set(all.map(i => i[4]));
-    const shown = all.filter(i => needsHidden[i[4]] !== i[0]), hidden = all.length - shown.length;
+    const shown = all.filter(i => !isHidden(i[4], i[0])), hidden = all.filter(i => isHidden(i[4], i[0]) && restorable(i[4])).length;
     return `<div class="card" id="needsCard"><div class="card-head"><h2>Needs you</h2>${hidden ? `<button type="button" class="plain small" data-unhide>Show ${hidden} hidden</button>` : ''}</div>
       ${shown.length ? `<div class="todo">${shown.map(([n, text, href, attrs, key]) => `<div class="todo-item"><a href="${href}" ${attrs}><b>${n}</b>${esc(text)}</a><button type="button" class="todo-hide" data-hide="${esc(key)}" data-n="${n}" title="Hide" aria-label="Hide">×</button></div>`).join('')}</div>`
-        : `<p class="muted">${hidden ? 'Nothing else is waiting on you.' : 'Nothing is waiting on you.'}</p>`}</div>`;
+        : `<p class="muted">${shown.length < all.length ? 'Nothing else is waiting on you.' : 'Nothing is waiting on you.'}</p>`}</div>`;
   };
   async function saveHidden(next) {
-    next = Object.fromEntries(Object.entries(next).filter(([k]) => needsKeys.has(k))); // forget items that have gone
+    next = Object.fromEntries(Object.entries(next).filter(([k]) => needsKeys.has(k)).map(([k, v]) => [k, v.n ?? v])); // forget items that have gone
     needsHidden = await (await api('/dashboard/hidden', { method: 'PUT', body: JSON.stringify(next) })).json();
     loadHome();
   }
   document.addEventListener('click', e => {
     const h = e.target.closest('#needsCard [data-hide]'), u = e.target.closest('#needsCard [data-unhide]');
     if (h) { e.preventDefault(); saveHidden({ ...needsHidden, [h.dataset.hide]: Number(h.dataset.n) }).catch(err => alert(err.message)); }
-    if (u) saveHidden({}).catch(err => alert(err.message));
+    if (u) saveHidden(Object.fromEntries(Object.entries(needsHidden).filter(([k]) => !restorable(k)))).catch(err => alert(err.message));
   });
   const tile = (big, label, sub = '', href = '') => `<${href ? `a href="${href}"` : 'div'} class="card tile"><span class="muted">${esc(label)}</span><span class="big">${big}</span>${sub ? `<span class="muted">${sub}</span>` : ''}</${href ? 'a' : 'div'}>`;
   // Every bar is labelled with the day over the month, so labels never wrap differently and the charts line up on phones.
