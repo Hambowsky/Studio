@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Red Cherry IT Studio</title>
 <link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/assets/app-icon-192.png">
+<meta name="theme-color" content="#b5333f">
 <style>
   @font-face { font-family: Archivo; font-weight: 400; src: url(/fonts/archivo-latin-400-normal.woff2) format('woff2'); }
   @font-face { font-family: Archivo; font-weight: 500 700; src: url(/fonts/archivo-latin-500-normal.woff2) format('woff2'); }
@@ -340,7 +343,16 @@
 </section>
 
 <!-- Social: make the image, write the text, post to Buffer, see the calendar -->
-<section class="view" data-view="home" hidden><div id="homeBox" class="dash"></div></section>
+<section class="view" data-view="home" hidden><div id="homeBox" class="dash"></div>
+  <details class="card" id="alCard" style="display:grid;gap:12px;margin-top:16px">
+    <summary><h2 style="display:inline">Phone alerts</h2> <span class="muted" id="alState"></span></summary>
+    <p class="muted" id="alHelp">Get an alert on this device when something new lands under Needs you or new mail arrives.</p>
+    <div class="row"><button type="button" class="small" id="alOn">Turn on for this device</button><button type="button" class="plain small" id="alTest">Send a test</button></div>
+    <div class="row"><label class="check"><input type="checkbox" id="alNeeds" style="accent-color:var(--red)"> Needs you</label><label class="check"><input type="checkbox" id="alMail" style="accent-color:var(--red)"> New mail</label></div>
+    <div id="alDevices" class="list"></div>
+    <p id="alOut" class="muted"></p>
+  </details>
+</section>
 <section class="view" data-view="social" hidden>
   <div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div>
   <div class="cols social-top">
@@ -1344,6 +1356,52 @@
   const pct = (a, b) => b ? Math.round(a / b * 100) : null;
 
   // Overview: the first page. Everything waiting on David, then every number in one place, each linking to its page.
+  // Phone alerts (Web Push). On an iPhone the studio has to be opened from the home screen for this to work.
+  const pushOk = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const isIos = /iPhone|iPad/.test(navigator.userAgent), standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const deviceLabel = () => { const u = navigator.userAgent; return /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android phone' : `Computer (${/Edg\//.test(u) ? 'Edge' : /Chrome\//.test(u) ? 'Chrome' : /Firefox\//.test(u) ? 'Firefox' : /Safari\//.test(u) ? 'Safari' : 'browser'})`; };
+  const alOut = (html = '') => { $('alOut').innerHTML = html; };
+  const b64key = k => { const s = atob(k.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - k.length % 4) % 4)); return Uint8Array.from(s, c => c.charCodeAt(0)); };
+  const mySub = async () => pushOk ? (await (await navigator.serviceWorker.register('/sw.js')).pushManager.getSubscription()) : null;
+  async function loadAlerts() {
+    try {
+      const a = await (await api('/alerts')).json(), sub = await mySub().catch(() => null), here = !!sub && a.devices.some(d => d.endpoint === sub.endpoint);
+      $('alNeeds').checked = a.prefs.needs; $('alMail').checked = a.prefs.mail;
+      $('alState').textContent = a.devices.length ? `On for ${a.devices.length} device${a.devices.length === 1 ? '' : 's'}` : 'Off';
+      $('alOn').textContent = here ? 'Turn off for this device' : 'Turn on for this device'; $('alOn').dataset.on = here ? '1' : '';
+      $('alOn').disabled = !pushOk; $('alTest').hidden = !a.devices.length;
+      $('alHelp').innerHTML = !pushOk && isIos && !standalone ? 'On your iPhone, open this page in Safari, tap Share, then <b>Add to Home Screen</b>. Open the studio from the new icon and come back here to turn alerts on.'
+        : !pushOk ? 'This browser cannot show alerts. Try Chrome, Edge, Firefox or Safari, or the studio added to your home screen.'
+        : 'Get an alert on this device when something new lands under Needs you or new mail arrives.';
+      $('alDevices').innerHTML = a.devices.map(d => `<div><span><b>${esc(d.label || 'Device')}</b>${sub && d.endpoint === sub.endpoint ? ' <span class="muted">(this one)</span>' : ''} <span class="muted">since ${esc(dm(`${d.created_at}Z`))}</span></span>
+        <button type="button" class="plain small" data-al-del="${esc(d.endpoint)}">Remove</button></div>`).join('');
+    } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); }
+  }
+  $('alCard').addEventListener('toggle', () => { if ($('alCard').open) loadAlerts(); });
+  $('alOn').addEventListener('click', async () => {
+    $('alOn').disabled = true; alOut();
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js'), sub = await reg.pushManager.getSubscription();
+      if ($('alOn').dataset.on) { if (sub) { await api('/alerts/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) }); await sub.unsubscribe(); } alOut('Alerts are off for this device.'); }
+      else {
+        if (await Notification.requestPermission() !== 'granted') throw new Error('Alerts are blocked for this site. Allow notifications in your browser or phone settings, then try again.');
+        const { public_key } = await (await api('/alerts')).json();
+        const s = sub ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64key(public_key) });
+        await api('/alerts/subscribe', { method: 'POST', body: JSON.stringify({ subscription: s.toJSON(), label: deviceLabel() }) });
+        alOut('<span class="good">Alerts are on for this device.</span>');
+      }
+    } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); }
+    loadAlerts();
+  });
+  $('alTest').addEventListener('click', async () => {
+    try { const r = await (await api('/alerts/test', { method: 'POST' })).json(); alOut(`Sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.`); } catch (e) { alOut(`<span class="bad">${esc(e.message)}</span>`); }
+  });
+  for (const id of ['alNeeds', 'alMail']) $(id).addEventListener('change', () => api('/alerts/prefs', { method: 'PUT', body: JSON.stringify({ needs: $('alNeeds').checked, mail: $('alMail').checked }) }).catch(e => alOut(`<span class="bad">${esc(e.message)}</span>`)));
+  $('alDevices').addEventListener('click', async e => {
+    const t = e.target.closest('[data-al-del]'); if (!t) return;
+    await api('/alerts/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: t.dataset.alDel }) }).catch(err => alOut(`<span class="bad">${esc(err.message)}</span>`)); loadAlerts();
+  });
+
   async function loadHome() {
     const box = $('homeBox'), hour = new Date().getHours();
     try {

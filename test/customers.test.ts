@@ -2,7 +2,9 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -345,4 +347,35 @@ test('sending mail checks its attachments', async () => {
   assert.equal((await call('POST', '/mailboxes/99/send', { ...base, attachments: [{ data: 'eA==' }] })).statusCode, 400, 'a file needs a name');
   assert.equal((await call('POST', '/mailboxes/99/send', { ...base, forward: { box: 1, uid: 1, parts: ['../x'] } })).statusCode, 400, 'parts are numbers');
   assert.equal((await call('POST', '/mailboxes/99/send', { ...base, attachments: [{ name: 'a.txt', data: 'eA==' }] })).statusCode, 404);
+});
+
+test('phone alerts go out when a Needs you number goes up, signed and encrypted', async () => {
+  const a = (await call('GET', '/alerts')).json();
+  assert.match(a.public_key, /^[\w-]{80,}$/);
+  assert.deepEqual(a.prefs, { needs: true, mail: true });
+  assert.equal((await call('POST', '/alerts/subscribe', { subscription: { endpoint: 'http://example.com/x', keys: { p256dh: 'a', auth: 'b' } } })).statusCode, 400, 'push addresses are https');
+  const got: { auth: string; enc: string; ttl: string }[] = [];
+  // web-push only speaks https, so the fake push service gets a throwaway certificate.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-push-'));
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-keyout', `${dir}/k.pem`, '-out', `${dir}/c.pem`], { stdio: 'ignore' });
+  const svc = https.createServer({ key: fs.readFileSync(`${dir}/k.pem`), cert: fs.readFileSync(`${dir}/c.pem`) }, (req, res) => { req.resume(); req.on('end', () => {
+    got.push({ auth: String(req.headers.authorization), enc: String(req.headers['content-encoding']), ttl: String(req.headers.ttl) });
+    res.statusCode = req.url === '/gone' ? 410 : 201; res.end(); }); });
+  await new Promise<void>(ok => svc.listen(0, '127.0.0.1', ok));
+  const port = (svc.address() as net.AddressInfo).port;
+  // A real browser key pair, so the payload can be encrypted for it.
+  const ecdh = crypto.createECDH('prime256v1'); ecdh.generateKeys();
+  const keys = { p256dh: ecdh.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') };
+  const { db } = await import('../src/db.ts'), notify = await import('../src/notify.ts');
+  for (const p of ['/live', '/gone']) assert.equal((await call('POST', '/alerts/subscribe', { subscription: { endpoint: `https://127.0.0.1:${port}${p}`, keys }, label: 'Test' })).statusCode, 200);
+  await call('PUT', '/alerts/prefs', { mail: false });
+  const tls = process.env.NODE_TLS_REJECT_UNAUTHORIZED; process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  try {
+    assert.equal((await notify.check()).sent, 0, 'the first look only notes where things stand');
+    db.prepare(`INSERT INTO signals (url, status) VALUES ('https://example.com/help', 'new')`).run();
+    assert.equal((await notify.check()).sent, 1, 'one alert reaches the live device');
+    assert.match(got[0].auth, /^vapid t=.+, k=/); assert.equal(got[0].enc, 'aes128gcm');
+    assert.deepEqual(notify.devices().map(d => d.endpoint), [`https://127.0.0.1:${port}/live`], 'a device the push service says is gone is dropped');
+    assert.equal((await notify.check()).sent, 0, 'nothing new, nothing sent');
+  } finally { if (tls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = tls; svc.close(); db.prepare('DELETE FROM push_subs').run(); db.prepare(`DELETE FROM signals WHERE url = 'https://example.com/help'`).run(); }
 });

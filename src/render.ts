@@ -11,13 +11,13 @@ import { checkUrl, isChallenge } from './page.ts';
 
 const TYPES: Record<string, string> = {
   '.js': 'text/javascript', '.woff2': 'font/woff2', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.webmanifest': 'application/manifest+json',
 };
 
 // Files a template may load: /check.js, /fonts/<file>, /assets/<file>. Shared with the HTTP server.
 export function publicFile(urlPath: string) {
   const m = urlPath.match(/^\/(fonts|assets)\/([\w-][\w.-]*)$/);
-  const file = urlPath === '/check.js' ? path.join(ROOT, 'public', 'check.js') : m ? path.join(ROOT, m[1], m[2]) : undefined;
+  const file = ['/check.js', '/sw.js', '/manifest.webmanifest'].includes(urlPath) ? path.join(ROOT, 'public', urlPath.slice(1)) : m ? path.join(ROOT, m[1], m[2]) : undefined;
   if (!file || !fs.existsSync(file)) return undefined;
   return { file, type: TYPES[path.extname(file)] ?? 'application/octet-stream' };
 }
