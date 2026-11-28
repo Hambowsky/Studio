@@ -321,3 +321,10 @@ test('an inbox is only saved once it logs in, and its password never comes back'
   assert.deepEqual((await call('GET', '/mailboxes')).json(), []);
   assert.equal((await call('GET', '/mail')).json().messages.length, 0);
 });
+
+test('deleting mail checks what it is given', async () => {
+  assert.equal((await call('POST', '/mail/delete', { messages: [] })).statusCode, 400, 'something to delete');
+  assert.equal((await call('POST', '/mail/delete', { folder: 'elsewhere', messages: [{ box: 1, uid: 1 }] })).statusCode, 400, 'a known folder');
+  assert.equal((await call('POST', '/mail/delete', { messages: [{ box: 99, uid: 1 }] })).statusCode, 404, 'a known inbox');
+  assert.equal((await call('GET', '/mail?folder=spam')).json().messages.length, 0);
+});

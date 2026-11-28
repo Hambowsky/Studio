@@ -52,25 +52,40 @@ export async function saveMailbox(input: BoxInput, id?: number) {
 }
 export function removeMailbox(id: number) { box(id); db.prepare('DELETE FROM mailboxes WHERE id = ?').run(id); return { ok: true }; }
 
+// The folders shown on the Mail page, found by their special use flag or, failing that, their usual names.
+export const FOLDERS = ['inbox', 'sent', 'drafts', 'spam', 'trash', 'archive'] as const;
+export type Folder = typeof FOLDERS[number];
+const FIND: Record<Exclude<Folder, 'inbox'>, [string, RegExp]> = {
+  sent: ['\\Sent', /^sent( items| messages| mail)?$/i], drafts: ['\\Drafts', /^drafts?$/i], spam: ['\\Junk', /^(spam|junk( e-?mail)?|bulk mail)$/i],
+  trash: ['\\Trash', /^(trash|deleted( items| messages)?|bin)$/i], archive: ['\\Archive', /^archives?$/i] };
+async function folderPath(c: ImapFlow, f: Folder) {
+  if (f === 'inbox') return 'INBOX';
+  const [use, names] = FIND[f], all = await c.list();
+  return (all.find(x => x.specialUse === use) ?? all.find(x => names.test(x.name)))?.path;
+}
+const mustPath = async (c: ImapFlow, f: Folder) => (await folderPath(c, f)) ?? fail(404, `This inbox has no ${f} folder`);
+
 const who = (p?: Person[]) => (p ?? []).map(x => ({ name: x.name ?? '', address: (x.address ?? '').toLowerCase() }));
 
-// The newest messages in each inbox (or one), newest first, with each inbox's unread count. An inbox that cannot be
-// reached shows its error and the others still load.
-export async function inbox(boxId?: number, before?: number) {
+// The newest messages in one folder of each inbox (or one inbox), newest first, with each inbox's unread count. An
+// inbox that cannot be reached shows its error and the others still load; one without that folder shows nothing.
+export async function inbox(boxId?: number, before?: number, folder: Folder = 'inbox') {
   const boxes = boxId ? [box(boxId)] : db.prepare('SELECT * FROM mailboxes').all() as Box[];
   const status: { id: number; unseen: number; total: number; error?: string }[] = [];
   const messages = (await Promise.all(boxes.map(async b => {
     try {
       return await withBox(b, async c => {
-        const lock = await c.getMailboxLock('INBOX', { readOnly: true });
+        const path = await folderPath(c, folder);
+        if (!path) { status.push({ id: b.id, unseen: 0, total: 0 }); return []; }
+        const lock = await c.getMailboxLock(path, { readOnly: true });
         try {
           const total = (c.mailbox as { exists: number }).exists, end = before ? Math.min(before - 1, total) : total;
-          const st = await c.status('INBOX', { unseen: true }), unseen = (st && st.unseen) || 0;
+          const st = await c.status(path, { unseen: true }), unseen = (st && st.unseen) || 0;
           status.push({ id: b.id, unseen, total });
           if (end < 1) return [];
           const out = [];
           for await (const m of c.fetch(`${Math.max(1, end - PAGE + 1)}:${end}`, { uid: true, envelope: true, flags: true, bodyStructure: true })) {
-            out.push({ box_id: b.id, uid: m.uid, seq: m.seq, from: who(m.envelope?.from)[0] ?? { name: '', address: '' }, subject: m.envelope?.subject ?? '',
+            out.push({ box_id: b.id, uid: m.uid, seq: m.seq, from: who(m.envelope?.from)[0] ?? { name: '', address: '' }, to: who(m.envelope?.to)[0] ?? { name: '', address: '' }, subject: m.envelope?.subject ?? '',
               date: new Date(m.envelope?.date ?? Date.now()).toISOString(), seen: !!m.flags?.has('\\Seen'), flagged: !!m.flags?.has('\\Flagged'),
               attachments: parts(m.bodyStructure).attachments.length > 0 });
           }
@@ -101,11 +116,11 @@ const read = async (c: ImapFlow, uid: number, part: string) => {
 };
 
 // One message, opened: it is marked read, as in any mail program.
-export async function message(boxId: number, uid: number) {
+export async function message(boxId: number, uid: number, folder: Folder = 'inbox') {
   return withBox(box(boxId), async c => {
-    const lock = await c.getMailboxLock('INBOX');
+    const lock = await c.getMailboxLock(await mustPath(c, folder));
     try {
-      const m = (await c.fetchOne(String(uid), { uid: true, envelope: true, bodyStructure: true, flags: true, headers: ['references'] }, { uid: true })) || fail(404, 'That message is no longer in the inbox');
+      const m = (await c.fetchOne(String(uid), { uid: true, envelope: true, bodyStructure: true, flags: true, headers: ['references'] }, { uid: true })) || fail(404, 'That message is no longer there');
       const p = parts(m.bodyStructure);
       const [text, html] = await Promise.all([p.text ? read(c, uid, p.text) : null, p.html ? read(c, uid, p.html) : null]);
       if (!m.flags?.has('\\Seen')) await c.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
@@ -117,9 +132,9 @@ export async function message(boxId: number, uid: number) {
   });
 }
 
-export async function attachment(boxId: number, uid: number, part: string) {
+export async function attachment(boxId: number, uid: number, part: string, folder: Folder = 'inbox') {
   return withBox(box(boxId), async c => {
-    const lock = await c.getMailboxLock('INBOX', { readOnly: true });
+    const lock = await c.getMailboxLock(await mustPath(c, folder), { readOnly: true });
     try {
       const m = await c.fetchOne(String(uid), { uid: true, bodyStructure: true }, { uid: true });
       const a = (m ? parts(m.bodyStructure).attachments.find(x => x.part === part) : undefined) ?? fail(404, 'That attachment is not in the message');
@@ -128,24 +143,23 @@ export async function attachment(boxId: number, uid: number, part: string) {
   });
 }
 
-export async function markSeen(boxId: number, uid: number, seen: boolean) {
+export async function markSeen(boxId: number, uid: number, seen: boolean, folder: Folder = 'inbox') {
   await withBox(box(boxId), async c => {
-    const lock = await c.getMailboxLock('INBOX');
+    const lock = await c.getMailboxLock(await mustPath(c, folder));
     try { await (seen ? c.messageFlagsAdd : c.messageFlagsRemove).call(c, String(uid), ['\\Seen'], { uid: true }); } finally { lock.release(); }
   });
   return { ok: true };
 }
 
-const folder = async (c: ImapFlow, use: string, names: RegExp) => { const all = await c.list(); return (all.find(f => f.specialUse === use) ?? all.find(f => names.test(f.name)))?.path; };
-
-// Delete moves it to the mailbox's Trash, so it can still be got back from Stackmail's webmail.
-export async function trash(boxId: number, uid: number) {
+// Delete moves messages to the mailbox's Trash, so they can still be got back. Deleting from the Trash (or from a
+// mailbox with no Trash) removes them for good.
+export async function trash(boxId: number, uids: number[], folder: Folder = 'inbox') {
   await withBox(box(boxId), async c => {
-    const to = await folder(c, '\\Trash', /^(trash|deleted( items| messages)?|bin)$/i);
-    const lock = await c.getMailboxLock('INBOX');
-    try { if (to) await c.messageMove(String(uid), to, { uid: true }); else await c.messageDelete(String(uid), { uid: true }); } finally { lock.release(); }
+    const from = await mustPath(c, folder), to = folder === 'trash' ? undefined : await folderPath(c, 'trash');
+    const lock = await c.getMailboxLock(from);
+    try { if (to && to !== from) await c.messageMove(uids.join(','), to, { uid: true }); else await c.messageDelete(uids.join(','), { uid: true }); } finally { lock.release(); }
   });
-  return { ok: true };
+  return { ok: true, deleted: uids.length };
 }
 
 // Sends from one of the mailboxes, then files a copy in its Sent folder so webmail shows it too.
@@ -161,7 +175,7 @@ export async function send(boxId: number, m: Outgoing) {
   try { await smtp.sendMail({ envelope: { from: b.email, to: [m.to, m.cc].filter(Boolean).join(', ') }, raw }); }
   catch (err) { fail(502, `It did not send: ${(err as Error).message}`); }
   let filed = true;
-  try { await withBox(b, async c => { const sent = await folder(c, '\\Sent', /^sent( items| messages)?$/i); if (sent) await c.append(sent, raw, ['\\Seen']); else filed = false; }); }
+  try { await withBox(b, async c => { const sent = await folderPath(c, 'sent'); if (sent) await c.append(sent, raw, ['\\Seen']); else filed = false; }); }
   catch { filed = false; }
   return { ok: true, filed };
 }
